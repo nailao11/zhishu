@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Header, Query
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from . import config
@@ -18,11 +20,15 @@ from .db import Database
 
 logger = logging.getLogger(__name__)
 
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
 app = FastAPI(
     title="百度指数查询服务",
-    description="基于 curl_cffi 的轻量级百度指数 API。",
+    description="基于 curl_cffi 的轻量级百度指数 API。中文管理后台请访问 /admin。",
     version="0.1.0",
 )
+
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_db() -> Database:
@@ -34,14 +40,18 @@ def get_crawler() -> BaiduIndexCrawler:
     return BaiduIndexCrawler(cookie=cookie)
 
 
-def verify_token(authorization: Optional[str] = Header(None)) -> None:
-    """Bearer Token 鉴权。若 ZHISHU_API_TOKEN 未配置则跳过鉴权。"""
+def verify_token(
+    creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+) -> None:
+    """Bearer Token 鉴权。若 ZHISHU_API_TOKEN 未配置则跳过鉴权。
+
+    用 HTTPBearer 声明，让 Swagger UI 显示 Authorize 按钮。
+    """
     if not config.API_TOKEN:
         return
-    if not authorization or not authorization.startswith("Bearer "):
+    if not creds or (creds.scheme or "").lower() != "bearer":
         raise HTTPException(status_code=401, detail="缺少 Authorization Bearer Token")
-    token = authorization[len("Bearer "):].strip()
-    if token != config.API_TOKEN:
+    if creds.credentials != config.API_TOKEN:
         raise HTTPException(status_code=401, detail="Token 错误")
 
 
@@ -64,31 +74,20 @@ class CookieRequest(BaseModel):
 
 # ---------- 接口 ----------
 
-@app.get("/", response_class=HTMLResponse)
-async def index():
-    return """
-    <html><head><title>百度指数查询服务</title>
-    <style>body{font-family:sans-serif;max-width:760px;margin:40px auto;padding:0 20px;line-height:1.6}
-    code{background:#f4f4f4;padding:2px 6px;border-radius:3px}</style></head>
-    <body>
-    <h1>百度指数查询服务</h1>
-    <p>服务运行中。完整 API 文档请访问 <a href="/docs">/docs</a> 或 <a href="/redoc">/redoc</a>。</p>
-    <h2>快速示例</h2>
-    <pre>
-# 实时查询关键词
-curl -X POST http://你的IP:8000/api/query \\
-  -H "Authorization: Bearer 你的Token" \\
-  -H "Content-Type: application/json" \\
-  -d '{"keywords":["python","golang"],"days":30}'
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse(url="/admin")
 
-# 从数据库读历史数据
-curl http://你的IP:8000/api/index/python?start_date=2026-06-01
 
-# 查最近运行情况
-curl http://你的IP:8000/api/runs
-    </pre>
-    </body></html>
-    """
+@app.get("/admin", response_class=HTMLResponse, include_in_schema=False)
+async def admin_page():
+    admin_file = STATIC_DIR / "admin.html"
+    if not admin_file.exists():
+        return HTMLResponse(
+            "<h1>admin.html 不存在</h1><p>请确认 src/static/admin.html 已部署</p>",
+            status_code=500,
+        )
+    return FileResponse(admin_file)
 
 
 @app.get("/api/health")

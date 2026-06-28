@@ -72,6 +72,17 @@ curl -fsSL https://raw.githubusercontent.com/nailao11/zhishu/claude/baidu-index-
 API 文档:   http://<服务器IP>:8000/docs
 ```
 
+### 中文管理后台（推荐）
+
+浏览器直接访问 `http://<服务器IP>:8000/admin`，就是个**纯中文图形界面**：
+- 输入一次 Token 后保存到浏览器，不用每次填
+- 可视化管理关键词（添加/删除）
+- 在线粘贴更新 Cookie（带自动验证）
+- 查询数据时显示走势图 + 数据表格
+- 查看定时任务运行记录
+
+适合非技术用户日常使用。
+
 ---
 
 ## 配置 Cookie（必做）
@@ -273,11 +284,17 @@ A：
 
 ## 升级 / 卸载
 
-**升级到最新代码：**
+**升级到最新代码（一键）：**
 ```bash
-cd /opt/zhishu
-sudo git pull
-sudo /opt/zhishu/venv/bin/pip install -r requirements.txt
+sudo bash /opt/zhishu/scripts/update.sh
+```
+
+或者手动：
+```bash
+sudo git -C /opt/zhishu fetch origin claude/baidu-index-tool-comparison-tsml69
+sudo git -C /opt/zhishu reset --hard origin/claude/baidu-index-tool-comparison-tsml69
+sudo /opt/zhishu/venv/bin/pip install -r /opt/zhishu/requirements.txt
+sudo chown -R zhishu:zhishu /opt/zhishu
 sudo systemctl restart zhishu-api
 ```
 

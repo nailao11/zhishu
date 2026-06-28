@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>百度指数管理后台</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+    background: #f5f7fa;
+    color: #2c3e50;
+    line-height: 1.6;
+}
+.header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 18px 40px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.header h1 { font-size: 20px; font-weight: 500; }
+.token-status {
+    font-size: 13px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    background: rgba(255,255,255,0.25);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.2s;
+}
+.token-status:hover { background: rgba(255,255,255,0.4); }
+.token-status.ok { background: rgba(40,167,69,0.9); }
+.token-status.bad { background: rgba(220,53,69,0.9); }
+
+.container { max-width: 1200px; margin: 24px auto; padding: 0 20px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.grid-full { grid-column: 1 / -1; }
+.card {
+    background: white;
+    border-radius: 12px;
+    padding: 22px 24px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+}
+.card h2 {
+    font-size: 17px;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #f0f2f5;
+    color: #2c3e50;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.card h2 .icon { font-size: 20px; }
+.help { font-size: 13px; color: #888; margin-bottom: 12px; line-height: 1.5; }
+
+input, textarea, button, select {
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+}
+input[type="text"], input[type="password"], textarea, select {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid #dde1e6;
+    border-radius: 6px;
+    transition: border 0.2s, box-shadow 0.2s;
+    background: white;
+}
+input:focus, textarea:focus, select:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
+}
+textarea { resize: vertical; min-height: 80px; font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; }
+
+button {
+    padding: 9px 18px;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.2s;
+    white-space: nowrap;
+}
+button:hover { background: #5568d3; }
+button.danger { background: #dc3545; }
+button.danger:hover { background: #c82333; }
+button.success { background: #28a745; }
+button.success:hover { background: #218838; }
+button.gray { background: #6c757d; }
+button.gray:hover { background: #5a6268; }
+button.small { padding: 4px 10px; font-size: 12px; }
+button:disabled { background: #ccc !important; cursor: not-allowed; }
+
+.form-row { display: flex; gap: 10px; margin-top: 12px; align-items: center; }
+.form-row input, .form-row select { flex: 1; }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { padding: 9px 10px; text-align: left; border-bottom: 1px solid #f0f2f5; }
+th { font-weight: 500; color: #666; background: #fafbfc; font-size: 13px; }
+tbody tr:hover { background: #f8f9fa; }
+.empty { text-align: center; color: #999; padding: 28px; font-style: italic; }
+
+.status {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+}
+.status.success { background: #d4edda; color: #155724; }
+.status.failed { background: #f8d7da; color: #721c24; }
+.status.partial { background: #fff3cd; color: #856404; }
+.status.running { background: #d1ecf1; color: #0c5460; }
+
+.toast {
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    padding: 13px 22px;
+    background: #333;
+    color: white;
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+    opacity: 0;
+    transform: translateY(-20px);
+    transition: all 0.3s;
+    z-index: 9999;
+    pointer-events: none;
+    font-size: 14px;
+    max-width: 400px;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast.success { background: #28a745; }
+.toast.error { background: #dc3545; }
+
+.modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+.modal.show { display: flex; }
+.modal-content {
+    background: white;
+    border-radius: 12px;
+    padding: 28px;
+    max-width: 500px;
+    width: 90%;
+}
+.modal h3 { margin-bottom: 14px; font-size: 18px; }
+.modal p { color: #666; margin-bottom: 14px; font-size: 13px; line-height: 1.6; }
+.modal code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+.modal-actions { margin-top: 18px; display: flex; gap: 10px; justify-content: flex-end; }
+
+.chart-wrap { margin-top: 10px; overflow-x: auto; }
+.summary {
+    background: #f8f9ff;
+    border-left: 3px solid #667eea;
+    padding: 10px 14px;
+    margin-top: 12px;
+    font-size: 13px;
+    border-radius: 4px;
+}
+.summary b { color: #667eea; }
+
+.tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 2px solid #f0f2f5; }
+.tab {
+    padding: 8px 16px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    color: #666;
+    font-size: 14px;
+}
+.tab.active { color: #667eea; border-bottom-color: #667eea; font-weight: 500; }
+
+@media (max-width: 768px) {
+    .grid { grid-template-columns: 1fr; }
+    .header { padding: 14px 16px; flex-direction: column; gap: 10px; align-items: flex-start; }
+    .container { padding: 0 12px; margin: 16px auto; }
+    .form-row { flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>📊 百度指数管理后台</h1>
+    <div class="token-status" id="tokenStatus" onclick="showTokenModal()">未登录</div>
+</div>
+
+<div class="container">
+    <div class="grid">
+        <div class="card">
+            <h2><span class="icon">🍪</span> 第一步：上传 Cookie</h2>
+            <div class="help">
+                打开浏览器登录 <a href="https://index.baidu.com" target="_blank">百度指数</a>，按 F12 → Network → 刷新 → 任意请求中复制 Cookie 整行，粘贴到下面。Cookie 一般几天失效，失效后重新做一次即可。
+            </div>
+            <textarea id="cookieInput" placeholder="BAIDUID=xxxx; BIDUPSID=xxxx; PSTM=xxxx; ... （完整 Cookie 字符串，几百字符）"></textarea>
+            <div class="form-row">
+                <button onclick="updateCookie()">验证并保存 Cookie</button>
+                <span id="cookieStatus" style="font-size: 13px; color: #666;"></span>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2><span class="icon">🔑</span> 第二步：管理关键词</h2>
+            <div class="help">每天凌晨 03:00 自动抓取下面列表里所有关键词的指数。单次最多 5 个一组请求，100 个约 1-2 分钟跑完。</div>
+            <div id="keywordsList"><div class="empty">加载中...</div></div>
+            <div class="form-row">
+                <input type="text" id="newKeyword" placeholder="输入关键词，多个用逗号分隔">
+                <button onclick="addKeywords()">+ 添加</button>
+            </div>
+        </div>
+
+        <div class="card grid-full">
+            <h2><span class="icon">📈</span> 查询历史数据</h2>
+            <div class="form-row">
+                <select id="queryKeyword" style="flex: 2;"><option value="">请选择关键词</option></select>
+                <select id="queryRange" style="flex: 1;">
+                    <option value="7">最近 7 天</option>
+                    <option value="30" selected>最近 30 天</option>
+                    <option value="90">最近 90 天</option>
+                    <option value="all">数据库全部</option>
+                </select>
+                <button onclick="queryData()">📊 查询历史</button>
+                <button class="success" onclick="liveQuery()">⚡ 实时抓取</button>
+            </div>
+            <div id="queryResult" style="margin-top: 14px;"></div>
+        </div>
+
+        <div class="card grid-full">
+            <h2><span class="icon">📜</span> 定时任务运行记录</h2>
+            <div class="help">每天凌晨 3 点自动跑一次。如果连续失败，多半是 Cookie 过期，重新更新一下 Cookie 即可。</div>
+            <div id="runsList"><div class="empty">加载中...</div></div>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="tokenModal">
+    <div class="modal-content">
+        <h3>🔐 输入访问 Token</h3>
+        <p>这是安装时屏幕上打印的那一长串。<br>忘了可以 SSH 到服务器执行：<br><code>sudo grep ZHISHU_API_TOKEN /opt/zhishu/.env</code></p>
+        <input type="text" id="tokenInput" placeholder="粘贴你的 Token">
+        <div class="modal-actions">
+            <button class="gray" onclick="hideTokenModal()">取消</button>
+            <button onclick="saveToken()">保存</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN_KEY = 'zhishu_token';
+let token = localStorage.getItem(TOKEN_KEY) || '';
+
+function $(id) { return document.getElementById(id); }
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function fmtDate(d) { return d.toISOString().slice(0, 10); }
+
+function showToast(msg, type='') {
+    const t = $('toast');
+    t.textContent = msg;
+    t.className = 'toast show ' + type;
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => t.className = 'toast', 3500);
+}
+
+async function api(path, options = {}) {
+    const headers = options.headers || {};
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+
+    const resp = await fetch(path, { ...options, headers });
+    let data = {};
+    try { data = await resp.json(); } catch (e) {}
+    if (!resp.ok) {
+        const err = new Error(data.detail || (resp.status + ' ' + resp.statusText));
+        err.status = resp.status;
+        throw err;
+    }
+    return data;
+}
+
+function updateTokenStatus() {
+    const el = $('tokenStatus');
+    if (token) {
+        el.textContent = '✓ 已登录（点此更换 Token）';
+        el.className = 'token-status ok';
+    } else {
+        el.textContent = '⚠ 未登录（点此输入 Token）';
+        el.className = 'token-status bad';
+    }
+}
+
+function showTokenModal() {
+    $('tokenInput').value = token;
+    $('tokenModal').classList.add('show');
+    setTimeout(() => $('tokenInput').focus(), 50);
+}
+function hideTokenModal() { $('tokenModal').classList.remove('show'); }
+function saveToken() {
+    const v = $('tokenInput').value.trim();
+    if (!v) { showToast('Token 不能为空', 'error'); return; }
+    token = v;
+    localStorage.setItem(TOKEN_KEY, token);
+    updateTokenStatus();
+    hideTokenModal();
+    showToast('Token 已保存', 'success');
+    loadAll();
+}
+
+async function loadKeywords() {
+    if (!token) { $('keywordsList').innerHTML = '<div class="empty">请先在右上角输入 Token</div>'; return; }
+    try {
+        const data = await api('/api/keywords');
+        const list = data.keywords || [];
+        const html = list.length ? `
+            <table>
+                <thead><tr><th>关键词</th><th>状态</th><th>添加时间</th><th width="60">操作</th></tr></thead>
+                <tbody>
+                    ${list.map(k => `
+                        <tr>
+                            <td><b>${escapeHtml(k.keyword)}</b></td>
+                            <td>${k.enabled ? '<span class="status success">启用</span>' : '<span class="status failed">禁用</span>'}</td>
+                            <td style="color:#999;font-size:12px;">${k.created_at || ''}</td>
+                            <td><button class="small danger" onclick="deleteKeyword('${encodeURIComponent(k.keyword)}','${escapeHtml(k.keyword)}')">删除</button></td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        ` : '<div class="empty">还没有关键词，下方输入框添加</div>';
+        $('keywordsList').innerHTML = html;
+
+        const sel = $('queryKeyword');
+        const prev = sel.value;
+        sel.innerHTML = '<option value="">请选择关键词</option>' +
+            list.map(k => `<option value="${escapeHtml(k.keyword)}">${escapeHtml(k.keyword)}</option>`).join('');
+        if (prev && list.some(k => k.keyword === prev)) sel.value = prev;
+    } catch (e) {
+        $('keywordsList').innerHTML = `<div class="empty">加载失败：${escapeHtml(e.message)}</div>`;
+        if (e.status === 401) { showToast('Token 错误，请重新输入', 'error'); showTokenModal(); }
+    }
+}
+
+async function addKeywords() {
+    const input = $('newKeyword');
+    const text = input.value.trim();
+    if (!text) return;
+    const keywords = text.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
+    if (!keywords.length) return;
+    try {
+        const r = await api('/api/keywords', { method: 'POST', body: JSON.stringify({keywords}) });
+        showToast(`成功添加 ${r.added} 个${r.skipped ? `，跳过 ${r.skipped} 个重复` : ''}`, 'success');
+        input.value = '';
+        loadKeywords();
+    } catch (e) {
+        showToast('添加失败：' + e.message, 'error');
+    }
+}
+
+async function deleteKeyword(encoded, display) {
+    if (!confirm(`确定删除关键词「${display}」？（历史数据不会被删除，只是不再定时抓取）`)) return;
+    try {
+        await api('/api/keywords/' + encoded, { method: 'DELETE' });
+        showToast('已删除', 'success');
+        loadKeywords();
+    } catch (e) {
+        showToast('删除失败：' + e.message, 'error');
+    }
+}
+
+async function updateCookie() {
+    const cookie = $('cookieInput').value.trim();
+    if (!cookie) { showToast('请先粘贴 Cookie', 'error'); return; }
+    const btn = event.target;
+    btn.disabled = true;
+    const oldText = btn.textContent;
+    btn.textContent = '验证中...';
+    $('cookieStatus').textContent = '正在用一次测试请求验证 Cookie...';
+    try {
+        await api('/api/cookie', { method: 'POST', body: JSON.stringify({cookie}) });
+        $('cookieStatus').innerHTML = '<span style="color:#28a745;">✓ Cookie 验证通过并已保存</span>';
+        showToast('Cookie 已保存', 'success');
+        $('cookieInput').value = '';
+    } catch (e) {
+        $('cookieStatus').innerHTML = `<span style="color:#dc3545;">✗ ${escapeHtml(e.message)}</span>`;
+        showToast('保存失败：' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = oldText;
+    }
+}
+
+async function queryData() {
+    const kw = $('queryKeyword').value;
+    const range = $('queryRange').value;
+    if (!kw) { showToast('请先选择关键词', 'error'); return; }
+    let qs = '';
+    if (range !== 'all') {
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - parseInt(range));
+        qs = `?start_date=${fmtDate(start)}&end_date=${fmtDate(end)}`;
+    }
+    try {
+        $('queryResult').innerHTML = '<div class="empty">查询中...</div>';
+        const data = await api('/api/index/' + encodeURIComponent(kw) + qs);
+        renderData(kw, data);
+    } catch (e) {
+        $('queryResult').innerHTML = `<div class="empty">查询失败：${escapeHtml(e.message)}</div>`;
+    }
+}
+
+async function liveQuery() {
+    const kw = $('queryKeyword').value;
+    if (!kw) { showToast('请先选择关键词', 'error'); return; }
+    const range = $('queryRange').value;
+    const days = range === 'all' ? 30 : parseInt(range);
+    $('queryResult').innerHTML = '<div class="empty">正在实时抓取，请等 3-5 秒...</div>';
+    try {
+        await api('/api/query', { method: 'POST', body: JSON.stringify({keywords: [kw], days, area: 0, save: true}) });
+        showToast('实时抓取完成', 'success');
+        queryData();
+    } catch (e) {
+        $('queryResult').innerHTML = `<div class="empty">抓取失败：${escapeHtml(e.message)}</div>`;
+        showToast(e.message, 'error');
+        if (e.status === 401) showTokenModal();
+    }
+}
+
+function renderData(kw, data) {
+    const rows = data.data || [];
+    if (!rows.length) {
+        $('queryResult').innerHTML = `<div class="empty">还没有「${escapeHtml(kw)}」的数据，可以点上面的「实时抓取」按钮先抓一次</div>`;
+        return;
+    }
+    const values = rows.map(r => r.all_index);
+    const max = Math.max(...values);
+    const min = Math.min(...values);
+    const avg = Math.round(values.reduce((a,b)=>a+b,0) / values.length);
+    const latest = rows[rows.length - 1];
+
+    const chart = renderChart(rows, max);
+    $('queryResult').innerHTML = `
+        ${chart}
+        <div class="summary">
+            关键词「<b>${escapeHtml(kw)}</b>」共 <b>${rows.length}</b> 天数据　最新（${latest.date}）<b>${latest.all_index}</b>　最高 <b>${max}</b>　最低 <b>${min}</b>　平均 <b>${avg}</b>
+        </div>
+        <table style="margin-top:10px;">
+            <thead><tr><th>日期</th><th>总指数</th><th>PC 端</th><th>移动端</th></tr></thead>
+            <tbody>
+                ${rows.slice().reverse().slice(0, 60).map(r => `
+                    <tr>
+                        <td>${r.date}</td>
+                        <td><b>${r.all_index}</b></td>
+                        <td style="color:#888;">${r.pc_index}</td>
+                        <td style="color:#888;">${r.wise_index}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+        ${rows.length > 60 ? `<div class="help" style="margin-top:8px;text-align:center;">表格仅显示最近 60 天，图表显示全部 ${rows.length} 天</div>` : ''}
+    `;
+}
+
+function renderChart(rows, max) {
+    if (!rows.length || max === 0) return '<div class="empty">数据全为 0，可能此关键词搜索量过低未被百度收录</div>';
+    const w = 900, h = 240, padL = 50, padR = 20, padT = 20, padB = 30;
+    const n = rows.length;
+    const innerW = w - padL - padR;
+    const innerH = h - padT - padB;
+    const stepX = innerW / Math.max(n - 1, 1);
+    const points = rows.map((r, i) => {
+        const x = padL + i * stepX;
+        const y = padT + innerH - (r.all_index / max) * innerH;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+    const polyline = points.join(' ');
+    const areaPath = `M ${points[0]} L ${points.join(' L ')} L ${padL + (n-1)*stepX},${padT+innerH} L ${padL},${padT+innerH} Z`;
+
+    const yTicks = 4;
+    const yLabels = [];
+    for (let i = 0; i <= yTicks; i++) {
+        const v = Math.round(max * (yTicks - i) / yTicks);
+        const y = padT + (innerH * i / yTicks);
+        yLabels.push(`<line x1="${padL}" y1="${y}" x2="${w-padR}" y2="${y}" stroke="#f0f2f5" stroke-width="1"/>
+                      <text x="${padL-6}" y="${y+4}" font-size="11" fill="#999" text-anchor="end">${v}</text>`);
+    }
+
+    const xTickCount = Math.min(6, n);
+    const xLabels = [];
+    for (let i = 0; i < xTickCount; i++) {
+        const idx = Math.floor(i * (n - 1) / Math.max(xTickCount - 1, 1));
+        const x = padL + idx * stepX;
+        xLabels.push(`<text x="${x.toFixed(1)}" y="${h-10}" font-size="11" fill="#999" text-anchor="middle">${rows[idx].date.slice(5)}</text>`);
+    }
+
+    return `
+    <div class="chart-wrap">
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:240px;background:white;border:1px solid #f0f2f5;border-radius:6px;">
+        ${yLabels.join('')}
+        <path d="${areaPath}" fill="rgba(102,126,234,0.1)"/>
+        <polyline points="${polyline}" fill="none" stroke="#667eea" stroke-width="2"/>
+        ${xLabels.join('')}
+    </svg>
+    </div>`;
+}
+
+async function loadRuns() {
+    if (!token) { $('runsList').innerHTML = '<div class="empty">请先在右上角输入 Token</div>'; return; }
+    try {
+        const data = await api('/api/runs?limit=15');
+        const runs = data.runs || [];
+        const html = runs.length ? `
+            <table>
+                <thead><tr><th>开始时间</th><th>结束时间</th><th>状态</th><th>成功</th><th>失败</th><th>错误信息</th></tr></thead>
+                <tbody>
+                    ${runs.map(r => `
+                        <tr>
+                            <td>${r.started_at}</td>
+                            <td>${r.finished_at || '<span style="color:#999;">运行中...</span>'}</td>
+                            <td><span class="status ${r.status}">${statusLabel(r.status)}</span></td>
+                            <td>${r.success_count}</td>
+                            <td>${r.fail_count}</td>
+                            <td style="color:#dc3545;font-size:12px;max-width:300px;word-break:break-all;">${escapeHtml(r.error || '')}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        ` : '<div class="empty">还没有运行记录。等凌晨 3 点自动跑一次，或者在服务器上手动跑：<br><code style="font-size:12px;">sudo -u zhishu /opt/zhishu/venv/bin/python /opt/zhishu/scripts/run_daily.py</code></div>';
+        $('runsList').innerHTML = html;
+    } catch (e) {
+        $('runsList').innerHTML = `<div class="empty">加载失败：${escapeHtml(e.message)}</div>`;
+    }
+}
+
+function statusLabel(s) {
+    return ({success:'✓ 成功', failed:'✗ 失败', partial:'⚠ 部分成功', running:'⏳ 运行中'})[s] || s;
+}
+
+async function loadAll() {
+    if (!token) return;
+    loadKeywords();
+    loadRuns();
+}
+
+updateTokenStatus();
+if (!token) {
+    setTimeout(showTokenModal, 200);
+} else {
+    loadAll();
+}
+
+$('newKeyword').addEventListener('keydown', e => { if (e.key === 'Enter') addKeywords(); });
+$('tokenInput').addEventListener('keydown', e => { if (e.key === 'Enter') saveToken(); });
+$('tokenModal').addEventListener('click', e => { if (e.target === $('tokenModal')) hideTokenModal(); });
+</script>
+
+</body>
+</html>
