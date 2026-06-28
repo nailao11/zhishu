@@ -193,7 +193,10 @@ tbody tr:hover { background: #f8f9fa; }
 
 <div class="header">
     <h1>📊 百度指数管理后台</h1>
-    <div class="token-status" id="tokenStatus" onclick="showTokenModal()">未登录</div>
+    <div style="display:flex;gap:10px;align-items:center;">
+        <div class="token-status" style="background:rgba(255,255,255,0.25);" onclick="runDiagnose()">🔍 诊断网络</div>
+        <div class="token-status" id="tokenStatus" onclick="showTokenModal()">未登录</div>
+    </div>
 </div>
 
 <div class="container">
@@ -547,6 +550,19 @@ async function loadRuns() {
 
 function statusLabel(s) {
     return ({success:'✓ 成功', failed:'✗ 失败', partial:'⚠ 部分成功', running:'⏳ 运行中'})[s] || s;
+}
+
+async function runDiagnose() {
+    if (!token) { showTokenModal(); return; }
+    showToast('正在用 Chrome TLS 指纹测试服务器到百度的连接...', '');
+    try {
+        const r = await api('/api/diagnose');
+        const verdict = r.verdict || '';
+        const detail = `状态码: ${r.baidu_status}\n返回: ${r.baidu_message || ''}\n\n${verdict}`;
+        alert(detail);
+    } catch (e) {
+        alert('诊断失败：' + e.message);
+    }
 }
 
 async function loadAll() {

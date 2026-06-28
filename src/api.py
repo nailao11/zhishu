@@ -105,6 +105,63 @@ async def health(db: Database = Depends(get_db)):
         return JSONResponse(status_code=500, content={"status": "error", "detail": str(e)})
 
 
+@app.get("/api/diagnose", dependencies=[Depends(verify_token)])
+async def diagnose():
+    """诊断服务器到百度的连接，用项目的 curl_cffi 模拟 Chrome 直接测试。
+
+    这个接口故意不带 Cookie，看百度返回什么状态码：
+    - 0       接口居然不要登录就能访问（基本不可能）
+    - 10000   未登录（正常情况，说明 IP 没问题，TLS指纹通过了）
+    - 10018   触发风控（IP 被百度盯上了）
+    - 其他    百度可能改了接口
+    """
+    from curl_cffi import requests as cffi_requests
+    from .crawler import BAIDU_INDEX_URL, DEFAULT_HEADERS
+
+    result = {
+        "tested_at": datetime.now().isoformat(timespec="seconds"),
+        "via": "curl_cffi (Chrome TLS impersonation)",
+    }
+
+    try:
+        session = cffi_requests.Session(impersonate="chrome120")
+        params = {
+            "area": "0",
+            "word": '[[{"name":"苹果","wordType":1}]]',
+            "days": "30",
+        }
+        resp = session.get(
+            BAIDU_INDEX_URL,
+            params=params,
+            headers=DEFAULT_HEADERS,
+            timeout=30,
+        )
+        result["http_status"] = resp.status_code
+        try:
+            data = resp.json()
+            status = data.get("status")
+            message = data.get("message", "")
+            result["baidu_status"] = status
+            result["baidu_message"] = message
+            if status == 10000:
+                result["verdict"] = "✅ 服务器 IP 没被风控，Chrome TLS 指纹通过了。现在只需要一个有效的 Cookie 就能工作。"
+            elif status == 10018:
+                result["verdict"] = "❌ 服务器 IP 已经被百度风控，就算配上有效 Cookie 也用不了。需要换服务器或挂住宅代理。"
+            elif status == 0:
+                result["verdict"] = "✅ 居然不需要登录就能查（极罕见）"
+            else:
+                result["verdict"] = f"⚠️ 未预期的状态码 {status}，百度可能改了接口"
+        except Exception:
+            result["baidu_status"] = None
+            result["body_preview"] = resp.text[:500]
+            result["verdict"] = "⚠️ 响应不是合法 JSON，可能被中间设备拦截了"
+    except Exception as e:
+        result["error"] = str(e)
+        result["verdict"] = "❌ 网络层就出错了，可能根本连不上百度"
+
+    return result
+
+
 @app.post("/api/query", dependencies=[Depends(verify_token)])
 async def query_keywords(req: QueryRequest, db: Database = Depends(get_db)):
     """实时查询百度指数。会触发一次真实的爬取请求。"""
