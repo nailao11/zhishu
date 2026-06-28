@@ -1,0 +1,25 @@
+[Unit]
+Description=Zhishu Baidu Index API Service
+After=network.target
+
+[Service]
+Type=simple
+User=zhishu
+Group=zhishu
+WorkingDirectory=/opt/zhishu
+EnvironmentFile=-/opt/zhishu/.env
+ExecStart=/opt/zhishu/venv/bin/python -m src.api
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/opt/zhishu/logs/api.log
+StandardError=append:/opt/zhishu/logs/api.log
+
+# 安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/zhishu/data /opt/zhishu/logs /opt/zhishu/config
+
+[Install]
+WantedBy=multi-user.target

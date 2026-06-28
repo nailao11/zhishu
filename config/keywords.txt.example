@@ -1,0 +1,9 @@
+# 关键词列表示例
+# 一行一个关键词，#开头的行会被忽略
+# 这个文件只是给你参考的，关键词实际存在 SQLite 数据库里
+# 通过 API 或下面的命令导入：
+#   python -c "from src.db import Database; Database().add_keywords(open('config/keywords.txt').read().splitlines())"
+python
+golang
+人工智能
+机器学习

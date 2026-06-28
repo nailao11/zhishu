@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.Python
+venv/
+.venv/
+env/
+
+# 数据和日志
+data/
+logs/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# 环境配置（敏感）
+config/cookies.txt
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
