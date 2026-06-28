@@ -1,10 +1,9 @@
-# 把整行 Cookie 字符串粘贴在下面（不要加引号）
-# 获取方法：
-#   1. Chrome 浏览器登录 https://index.baidu.com
-#   2. 按 F12 打开开发者工具 → Network 选项卡
-#   3. 刷新页面，点击任意一个发往 index.baidu.com 的请求
-#   4. 在 Request Headers 里找到 Cookie，复制完整的值
-#   5. 把下面这一行替换成你复制的 Cookie
+# Paste your full Baidu cookie below (no quotes), then save.
+# How to get it:
+#   1. Open Chrome / Edge, log in to https://index.baidu.com
+#   2. F12 -> Network tab -> Refresh the page
+#   3. Click any request to index.baidu.com
+#   4. In Request Headers, find Cookie and copy the full value
+#   5. Replace the placeholder line below with what you copied
 #
-# 这一行下面的就是 Cookie：
-BAIDUID=xxxx; BIDUPSID=xxxx; PSTM=xxxx; ...（这里粘贴你的真实 Cookie）
+# (Do NOT leave this placeholder line in production - the loader will reject it.)

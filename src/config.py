@@ -61,10 +61,28 @@ def load_cookie() -> str:
 
     # 如果是多行 key=value 形式则合并
     if all("=" in line and ";" not in line for line in lines):
-        return "; ".join(lines)
+        cookie = "; ".join(lines)
+    else:
+        # 否则取第一行作为完整 Cookie
+        cookie = lines[0]
 
-    # 否则取第一行作为完整 Cookie
-    return lines[0]
+    # 真实 Baidu Cookie 一般 500+ 字符；过短大概率是占位符或没贴完整
+    if len(cookie) < 100:
+        raise ValueError(
+            f"Cookie 长度仅 {len(cookie)} 字符，太短了（真实 Cookie 至少 500+ 字符）。"
+            f"这可能是占位符示例，请把浏览器里完整的 Cookie 写入 {COOKIE_FILE}"
+        )
+
+    # HTTP Header 必须 ASCII；占位符里的中文括号会导致 UnicodeEncodeError
+    try:
+        cookie.encode("ascii")
+    except UnicodeEncodeError:
+        raise ValueError(
+            f"Cookie 含有非 ASCII 字符（中文/中文标点），HTTP 头不允许。"
+            f"这通常是因为粘错了示例占位符。请重新从浏览器 DevTools 复制完整 Cookie。"
+        )
+
+    return cookie
 
 
 def save_cookie(cookie: str) -> None:

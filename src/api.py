@@ -137,7 +137,11 @@ async def diagnose(
             cookie_str = config.load_cookie()
             result["cookie_length"] = len(cookie_str)
         except Exception as e:
-            result["verdict"] = f"❌ 启用了 Cookie 但读取失败: {e}"
+            result["verdict"] = (
+                f"❌ 启用了 Cookie 但读取失败: {e}\n\n"
+                "解决：SSH 到服务器执行 `sudo nano /opt/zhishu/config/cookies.txt`，"
+                "把里面所有内容删干净，粘贴你从浏览器复制的真实 Cookie 后保存。"
+            )
             return result
 
     start = _time.time()
