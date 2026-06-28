@@ -554,11 +554,30 @@ function statusLabel(s) {
 
 async function runDiagnose() {
     if (!token) { showTokenModal(); return; }
-    showToast('正在用 Chrome TLS 指纹测试服务器到百度的连接...', '');
+    const proxy = prompt(
+        '【网络诊断】\n\n' +
+        '直接确定 → 测试服务器直连百度（不走代理）\n' +
+        '在框里填代理 → 测试经过代理后能不能绕过风控\n\n' +
+        '代理格式举例：\n' +
+        '  http://用户名:密码@代理IP:端口\n' +
+        '  socks5://用户名:密码@代理IP:端口\n\n' +
+        '（留空 = 直连测试）',
+        ''
+    );
+    if (proxy === null) return;
+    showToast(proxy ? '正在通过代理测试...' : '正在直连测试...', '');
     try {
-        const r = await api('/api/diagnose');
-        const verdict = r.verdict || '';
-        const detail = `状态码: ${r.baidu_status}\n返回: ${r.baidu_message || ''}\n\n${verdict}`;
+        const qs = proxy ? '?proxy=' + encodeURIComponent(proxy) : '';
+        const r = await api('/api/diagnose' + qs);
+        const detail = [
+            '【诊断结果】',
+            '',
+            '请求方式: ' + (r.proxy || '直连'),
+            '百度状态码: ' + r.baidu_status,
+            '百度返回: ' + (r.baidu_message || '').slice(0, 200),
+            '',
+            r.verdict || ''
+        ].join('\n');
         alert(detail);
     } catch (e) {
         alert('诊断失败：' + e.message);

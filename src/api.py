@@ -37,7 +37,7 @@ def get_db() -> Database:
 
 def get_crawler() -> BaiduIndexCrawler:
     cookie = config.load_cookie()
-    return BaiduIndexCrawler(cookie=cookie)
+    return BaiduIndexCrawler(cookie=cookie, proxy=config.HTTP_PROXY or None)
 
 
 def verify_token(
@@ -106,25 +106,31 @@ async def health(db: Database = Depends(get_db)):
 
 
 @app.get("/api/diagnose", dependencies=[Depends(verify_token)])
-async def diagnose():
-    """诊断服务器到百度的连接，用项目的 curl_cffi 模拟 Chrome 直接测试。
+async def diagnose(proxy: Optional[str] = Query(None, description="可选代理，格式 http://user:pass@host:port")):
+    """诊断服务器（或经过代理后）到百度的连接，用 curl_cffi 模拟 Chrome 直接测试。
 
-    这个接口故意不带 Cookie，看百度返回什么状态码：
+    不带 Cookie，看百度返回什么状态码：
     - 0       接口居然不要登录就能访问（基本不可能）
     - 10000   未登录（正常情况，说明 IP 没问题，TLS指纹通过了）
     - 10018   触发风控（IP 被百度盯上了）
     - 其他    百度可能改了接口
+
+    如果传入 proxy 参数，会通过代理发请求，用于验证某个代理能否绕开风控。
     """
     from curl_cffi import requests as cffi_requests
     from .crawler import BAIDU_INDEX_URL, DEFAULT_HEADERS
 
+    effective_proxy = (proxy or config.HTTP_PROXY or "").strip() or None
     result = {
         "tested_at": datetime.now().isoformat(timespec="seconds"),
         "via": "curl_cffi (Chrome TLS impersonation)",
+        "proxy": effective_proxy or "（直连，未走代理）",
     }
 
     try:
         session = cffi_requests.Session(impersonate="chrome120")
+        if effective_proxy:
+            session.proxies = {"http": effective_proxy, "https": effective_proxy}
         params = {
             "area": "0",
             "word": '[[{"name":"苹果","wordType":1}]]',
@@ -144,9 +150,11 @@ async def diagnose():
             result["baidu_status"] = status
             result["baidu_message"] = message
             if status == 10000:
-                result["verdict"] = "✅ 服务器 IP 没被风控，Chrome TLS 指纹通过了。现在只需要一个有效的 Cookie 就能工作。"
+                via = "代理" if effective_proxy else "服务器直连"
+                result["verdict"] = f"✅ {via}的 IP 没被风控，Chrome TLS 指纹通过了。配上有效 Cookie 就能工作。"
             elif status == 10018:
-                result["verdict"] = "❌ 服务器 IP 已经被百度风控，就算配上有效 Cookie 也用不了。需要换服务器或挂住宅代理。"
+                via = "代理" if effective_proxy else "服务器"
+                result["verdict"] = f"❌ {via}的 IP 被百度风控了。" + ("换一个代理或服务器。" if not effective_proxy else "这个代理不行，换一个或退订。")
             elif status == 0:
                 result["verdict"] = "✅ 居然不需要登录就能查（极罕见）"
             else:
@@ -157,7 +165,7 @@ async def diagnose():
             result["verdict"] = "⚠️ 响应不是合法 JSON，可能被中间设备拦截了"
     except Exception as e:
         result["error"] = str(e)
-        result["verdict"] = "❌ 网络层就出错了，可能根本连不上百度"
+        result["verdict"] = "❌ 网络层就出错了，可能代理地址错误或代理服务挂了"
 
     return result
 

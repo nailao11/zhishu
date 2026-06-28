@@ -86,11 +86,19 @@ class BaiduIndexCrawler:
         results = crawler.fetch_keywords(["python", "java"], days=30)
     """
 
-    def __init__(self, cookie: str, impersonate: str = "chrome120"):
+    def __init__(
+        self,
+        cookie: str,
+        impersonate: str = "chrome120",
+        proxy: str | None = None,
+    ):
         if not cookie or not cookie.strip():
             raise ValueError("Cookie 不能为空")
         self.cookie = cookie.strip()
+        self.proxy = (proxy or "").strip() or None
         self.session = requests.Session(impersonate=impersonate)
+        if self.proxy:
+            self.session.proxies = {"http": self.proxy, "https": self.proxy}
 
     def _headers(self) -> dict:
         return {**DEFAULT_HEADERS, "Cookie": self.cookie}

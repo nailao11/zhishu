@@ -25,6 +25,10 @@ API_PORT = int(os.environ.get("ZHISHU_API_PORT", "8000"))
 # 默认查询天数
 DEFAULT_DAYS = int(os.environ.get("ZHISHU_DEFAULT_DAYS", "30"))
 
+# 可选的 HTTP/SOCKS5 代理（绕开服务器 IP 被百度风控）
+# 格式： http://user:pass@host:port  或  socks5://user:pass@host:port
+HTTP_PROXY = os.environ.get("ZHISHU_HTTP_PROXY", "").strip()
+
 
 def load_cookie() -> str:
     """读取 cookies.txt 中的 Cookie 字符串。
