@@ -91,6 +91,7 @@ class BaiduIndexCrawler:
         cookie: str,
         impersonate: str = "chrome120",
         proxy: str | None = None,
+        verify_ssl: bool | None = None,
     ):
         if not cookie or not cookie.strip():
             raise ValueError("Cookie 不能为空")
@@ -99,6 +100,11 @@ class BaiduIndexCrawler:
         self.session = requests.Session(impersonate=impersonate)
         if self.proxy:
             self.session.proxies = {"http": self.proxy, "https": self.proxy}
+        # 住宅代理（如 Bright Data）通常 MITM 解密 HTTPS，证书校验必须关
+        # 用户没显式指定时：用代理自动关 SSL 校验，直连保持开启
+        if verify_ssl is None:
+            verify_ssl = self.proxy is None
+        self.session.verify = verify_ssl
 
     def _headers(self) -> dict:
         return {**DEFAULT_HEADERS, "Cookie": self.cookie}

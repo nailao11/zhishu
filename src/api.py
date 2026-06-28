@@ -135,6 +135,8 @@ async def diagnose(
         session = cffi_requests.Session(impersonate="chrome120")
         if effective_proxy:
             session.proxies = {"http": effective_proxy, "https": effective_proxy}
+            # 走代理时一律关 SSL 校验（Bright Data 等住宅代理 MITM HTTPS）
+            session.verify = False
         params = {
             "area": "0",
             "word": '[[{"name":"苹果","wordType":1}]]',
