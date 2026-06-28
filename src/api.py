@@ -264,8 +264,8 @@ async def update_cookie(req: CookieRequest):
     if len(cookie) < 50:
         raise HTTPException(status_code=400, detail="Cookie 长度过短，可能不正确")
     try:
-        # 用新 Cookie 做一次测试请求验证可用
-        test = BaiduIndexCrawler(cookie=cookie)
+        # 用新 Cookie 做一次测试请求验证可用——必须走配置的代理（否则用服务器 IP 永远失败）
+        test = BaiduIndexCrawler(cookie=cookie, proxy=config.HTTP_PROXY or None)
         test.fetch_keywords(["百度"], days=7)
     except CookieExpiredError:
         raise HTTPException(status_code=400, detail="新 Cookie 验证失败，请重新获取")
