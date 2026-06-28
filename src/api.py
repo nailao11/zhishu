@@ -72,6 +72,13 @@ class CookieRequest(BaseModel):
     cookie: str = Field(..., description="完整的 Cookie 字符串")
 
 
+class DiagnoseRequest(BaseModel):
+    proxy: Optional[str] = Field(None, description="可选代理URL")
+    cookie: Optional[str] = Field(None, description="可选 Cookie 字符串；不传则只测 IP")
+    warmup: bool = Field(True, description="是否先访问主页 warmup")
+    timeout: int = Field(90, description="超时秒数")
+
+
 # ---------- 接口 ----------
 
 @app.get("/", include_in_schema=False)
@@ -105,42 +112,43 @@ async def health(db: Database = Depends(get_db)):
         return JSONResponse(status_code=500, content={"status": "error", "detail": str(e)})
 
 
-@app.get("/api/diagnose", dependencies=[Depends(verify_token)])
-async def diagnose(
-    proxy: Optional[str] = Query(None, description="可选代理"),
-    timeout: int = Query(90, description="超时秒数，住宅代理建议 60-120"),
-    use_cookie: bool = Query(False, description="为 true 时带上已保存的 Cookie，模拟真实抓取"),
-    warmup: bool = Query(True, description="先访问主页 warmup，模拟真实浏览器"),
-):
-    """诊断服务器（或经过代理后）到百度的连接，用 curl_cffi 模拟 Chrome 直接测试。
-
-    use_cookie=false（默认）+ warmup=false: 测纯 IP 是否被风控
-    use_cookie=true + warmup=true: 完全模拟真实抓取，看能不能拿到数据
-    """
+def _do_diagnose(
+    proxy: Optional[str],
+    cookie: Optional[str],
+    warmup: bool,
+    timeout: int,
+) -> dict:
+    """实际执行诊断的核心逻辑，给 GET 和 POST 两个端点共用。"""
     import time as _time
     from curl_cffi import requests as cffi_requests
     from .crawler import BAIDU_INDEX_URL, BAIDU_HOME_URL, DEFAULT_HEADERS, HOME_HEADERS
 
     effective_proxy = (proxy or config.HTTP_PROXY or "").strip() or None
+    cookie_str = (cookie or "").strip()
+    use_cookie = bool(cookie_str)
+
     result = {
         "tested_at": datetime.now().isoformat(timespec="seconds"),
-        "via": "curl_cffi (Chrome TLS impersonation)",
         "proxy": effective_proxy or "（直连，未走代理）",
         "timeout_seconds": timeout,
         "use_cookie": use_cookie,
+        "cookie_length": len(cookie_str) if use_cookie else 0,
         "warmup": warmup,
     }
 
-    cookie_str = ""
     if use_cookie:
-        try:
-            cookie_str = config.load_cookie()
-            result["cookie_length"] = len(cookie_str)
-        except Exception as e:
+        if len(cookie_str) < 100:
             result["verdict"] = (
-                f"❌ 启用了 Cookie 但读取失败: {e}\n\n"
-                "解决：SSH 到服务器执行 `sudo nano /opt/zhishu/config/cookies.txt`，"
-                "把里面所有内容删干净，粘贴你从浏览器复制的真实 Cookie 后保存。"
+                f"❌ Cookie 太短了（仅 {len(cookie_str)} 字符）。"
+                "真实 Baidu Cookie 至少 500+ 字符，请重新从浏览器 DevTools 复制完整 Cookie。"
+            )
+            return result
+        try:
+            cookie_str.encode("ascii")
+        except UnicodeEncodeError:
+            result["verdict"] = (
+                "❌ Cookie 含有非 ASCII 字符（中文等），HTTP 头不允许。"
+                "你贴的可能不是真实 Cookie，请重新去浏览器复制。"
             )
             return result
 
@@ -151,7 +159,6 @@ async def diagnose(
             session.proxies = {"http": effective_proxy, "https": effective_proxy}
             session.verify = False
 
-        # 先 warmup（模拟真实浏览器先访问主页）
         if warmup:
             try:
                 home_headers = {**HOME_HEADERS}
@@ -160,7 +167,7 @@ async def diagnose(
                 home_resp = session.get(BAIDU_HOME_URL, headers=home_headers, timeout=timeout)
                 result["warmup_status"] = home_resp.status_code
             except Exception as e:
-                result["warmup_error"] = str(e)
+                result["warmup_error"] = str(e)[:200]
 
         params = {
             "area": "0",
@@ -185,20 +192,20 @@ async def diagnose(
             result["baidu_status"] = status
             result["baidu_message"] = message
             if status == 0:
-                result["verdict"] = "🎉 真的拿到数据了！项目可以正式跑通"
+                result["verdict"] = "🎉 成功拿到数据了！项目可以正式跑通"
                 result["data_preview"] = str(data.get("data", {}))[:300]
             elif status == 10000:
                 if use_cookie:
-                    result["verdict"] = "⚠️ IP 通过但 Cookie 无效，请重新去浏览器复制完整 Cookie"
+                    result["verdict"] = "⚠️ IP 通过但 Cookie 无效。请重新从浏览器复制完整 Cookie 后再试。"
                 else:
                     via = "代理" if effective_proxy else "服务器直连"
-                    result["verdict"] = f"✅ {via}的 IP 没被风控。再开 use_cookie=true 测一次完整流程。"
+                    result["verdict"] = f"✅ {via}的 IP 没被风控。再带上 Cookie 测一次完整流程。"
             elif status == 10018:
                 via = "代理" if effective_proxy else "服务器"
                 if use_cookie:
-                    result["verdict"] = f"❌ 即使带 Cookie 也被 10018 风控。{via}的 IP 被深度拉黑。"
+                    result["verdict"] = f"❌ 即使带 Cookie 也被 10018 风控。{via}的 IP 被深度拉黑了。"
                 else:
-                    result["verdict"] = f"❌ {via}的 IP 没 Cookie 时被 10018 风控。建议再用 use_cookie=true 测一次——有时候带 Cookie 反而能过。"
+                    result["verdict"] = f"❌ {via}的 IP 没 Cookie 时被 10018 风控。建议再带 Cookie 测一次——有时候带 Cookie 反而能过。"
             else:
                 result["verdict"] = f"⚠️ 未预期的状态码 {status}，百度可能改了接口"
         except Exception:
@@ -208,13 +215,40 @@ async def diagnose(
     except Exception as e:
         result["elapsed_seconds"] = round(_time.time() - start, 2)
         result["error_type"] = type(e).__name__
-        result["error"] = str(e)
+        result["error"] = str(e)[:300]
         if "timeout" in str(e).lower() or "timed out" in str(e).lower():
-            result["verdict"] = f"❌ 超时（{result['elapsed_seconds']}秒），代理太慢或百度没回应。试更高的 timeout 参数或换代理。"
+            result["verdict"] = f"❌ 超时（{result['elapsed_seconds']}秒）。代理太慢或百度没回应，试更大 timeout 或换代理。"
         else:
             result["verdict"] = f"❌ 网络层报错：{type(e).__name__}。代理地址错误、代理服务挂了、或者 TLS 握手失败。"
 
     return result
+
+
+@app.get("/api/diagnose", dependencies=[Depends(verify_token)])
+async def diagnose_get(
+    proxy: Optional[str] = Query(None),
+    cookie: Optional[str] = Query(None),
+    warmup: bool = Query(True),
+    timeout: int = Query(90),
+    use_cookie: bool = Query(False, description="兼容旧版：true 时读取已保存的 Cookie"),
+):
+    """GET 版（兼容旧调用方）。带长 Cookie 时建议改用 POST。"""
+    effective_cookie = cookie
+    if use_cookie and not cookie:
+        try:
+            effective_cookie = config.load_cookie()
+        except Exception as e:
+            return {
+                "verdict": f"❌ 启用了 use_cookie 但读取文件失败: {e}",
+                "tested_at": datetime.now().isoformat(timespec="seconds"),
+            }
+    return _do_diagnose(proxy, effective_cookie, warmup, timeout)
+
+
+@app.post("/api/diagnose", dependencies=[Depends(verify_token)])
+async def diagnose_post(req: DiagnoseRequest):
+    """POST 版，推荐使用——Cookie 在 body 里不受 URL 长度限制。"""
+    return _do_diagnose(req.proxy, req.cookie, req.warmup, req.timeout)
 
 
 @app.post("/api/query", dependencies=[Depends(verify_token)])
