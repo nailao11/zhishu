@@ -19,6 +19,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 info "拉取最新代码..."
+git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
 git -C "$INSTALL_DIR" fetch origin "$REPO_BRANCH"
 git -C "$INSTALL_DIR" reset --hard "origin/$REPO_BRANCH"
 
