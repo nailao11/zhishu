@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 BAIDU_INDEX_URL = "https://index.baidu.com/api/SearchApi/index"
 PTBK_URL = "https://index.baidu.com/Interface/ptbk"
+BAIDU_HOME_URL = "https://index.baidu.com/v2/main/index.html"
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -27,8 +28,33 @@ DEFAULT_HEADERS = {
     ),
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "zh-CN,zh;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
     "Referer": "https://index.baidu.com/v2/main/index.html",
+    "Origin": "https://index.baidu.com",
     "X-Requested-With": "XMLHttpRequest",
+    "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+    "Connection": "keep-alive",
+}
+
+HOME_HEADERS = {
+    "User-Agent": DEFAULT_HEADERS["User-Agent"],
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Sec-Ch-Ua": DEFAULT_HEADERS["Sec-Ch-Ua"],
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "Connection": "keep-alive",
 }
 
 
@@ -105,6 +131,24 @@ class BaiduIndexCrawler:
         if verify_ssl is None:
             verify_ssl = self.proxy is None
         self.session.verify = verify_ssl
+        self._warmed_up = False
+
+    def _warmup(self) -> None:
+        """先 GET 一下主页，模拟真实浏览器的访问流程。
+
+        百度反爬会检测"突然空降 API"的请求——真实浏览器是先打开页面、
+        再 XHR 调 API。warmup 让我们看起来更自然，session 也能收到主页
+        设置的 cookies（部分 anti-spam token 是这里下发的）。
+        """
+        if self._warmed_up:
+            return
+        try:
+            headers = {**HOME_HEADERS, "Cookie": self.cookie}
+            self.session.get(BAIDU_HOME_URL, headers=headers, timeout=30, allow_redirects=True)
+            self._warmed_up = True
+        except Exception as e:
+            logger.warning("warmup 失败，继续直接调 API: %s", e)
+            self._warmed_up = True  # 不重试
 
     def _headers(self) -> dict:
         return {**DEFAULT_HEADERS, "Cookie": self.cookie}
@@ -153,6 +197,7 @@ class BaiduIndexCrawler:
         return out
 
     def _fetch_raw(self, keywords: list[str], area: int, days: int) -> dict:
+        self._warmup()
         word_param = [[{"name": kw, "wordType": 1}] for kw in keywords]
         params = {
             "area": str(area),

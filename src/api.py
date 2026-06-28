@@ -109,18 +109,17 @@ async def health(db: Database = Depends(get_db)):
 async def diagnose(
     proxy: Optional[str] = Query(None, description="可选代理"),
     timeout: int = Query(90, description="超时秒数，住宅代理建议 60-120"),
+    use_cookie: bool = Query(False, description="为 true 时带上已保存的 Cookie，模拟真实抓取"),
+    warmup: bool = Query(True, description="先访问主页 warmup，模拟真实浏览器"),
 ):
     """诊断服务器（或经过代理后）到百度的连接，用 curl_cffi 模拟 Chrome 直接测试。
 
-    不带 Cookie，看百度返回什么状态码：
-    - 0       接口居然不要登录就能访问（基本不可能）
-    - 10000   未登录（正常情况，说明 IP 没问题，TLS指纹通过了）
-    - 10018   触发风控（IP 被百度盯上了）
-    - 其他    百度可能改了接口
+    use_cookie=false（默认）+ warmup=false: 测纯 IP 是否被风控
+    use_cookie=true + warmup=true: 完全模拟真实抓取，看能不能拿到数据
     """
     import time as _time
     from curl_cffi import requests as cffi_requests
-    from .crawler import BAIDU_INDEX_URL, DEFAULT_HEADERS
+    from .crawler import BAIDU_INDEX_URL, BAIDU_HOME_URL, DEFAULT_HEADERS, HOME_HEADERS
 
     effective_proxy = (proxy or config.HTTP_PROXY or "").strip() or None
     result = {
@@ -128,24 +127,49 @@ async def diagnose(
         "via": "curl_cffi (Chrome TLS impersonation)",
         "proxy": effective_proxy or "（直连，未走代理）",
         "timeout_seconds": timeout,
+        "use_cookie": use_cookie,
+        "warmup": warmup,
     }
+
+    cookie_str = ""
+    if use_cookie:
+        try:
+            cookie_str = config.load_cookie()
+            result["cookie_length"] = len(cookie_str)
+        except Exception as e:
+            result["verdict"] = f"❌ 启用了 Cookie 但读取失败: {e}"
+            return result
 
     start = _time.time()
     try:
         session = cffi_requests.Session(impersonate="chrome120")
         if effective_proxy:
             session.proxies = {"http": effective_proxy, "https": effective_proxy}
-            # 走代理时一律关 SSL 校验（Bright Data 等住宅代理 MITM HTTPS）
             session.verify = False
+
+        # 先 warmup（模拟真实浏览器先访问主页）
+        if warmup:
+            try:
+                home_headers = {**HOME_HEADERS}
+                if cookie_str:
+                    home_headers["Cookie"] = cookie_str
+                home_resp = session.get(BAIDU_HOME_URL, headers=home_headers, timeout=timeout)
+                result["warmup_status"] = home_resp.status_code
+            except Exception as e:
+                result["warmup_error"] = str(e)
+
         params = {
             "area": "0",
             "word": '[[{"name":"苹果","wordType":1}]]',
             "days": "30",
         }
+        req_headers = {**DEFAULT_HEADERS}
+        if cookie_str:
+            req_headers["Cookie"] = cookie_str
         resp = session.get(
             BAIDU_INDEX_URL,
             params=params,
-            headers=DEFAULT_HEADERS,
+            headers=req_headers,
             timeout=timeout,
         )
         result["elapsed_seconds"] = round(_time.time() - start, 2)
@@ -156,14 +180,21 @@ async def diagnose(
             message = data.get("message", "")
             result["baidu_status"] = status
             result["baidu_message"] = message
-            if status == 10000:
-                via = "代理" if effective_proxy else "服务器直连"
-                result["verdict"] = f"✅ {via}的 IP 没被风控，Chrome TLS 指纹通过了。配上有效 Cookie 就能工作。"
+            if status == 0:
+                result["verdict"] = "🎉 真的拿到数据了！项目可以正式跑通"
+                result["data_preview"] = str(data.get("data", {}))[:300]
+            elif status == 10000:
+                if use_cookie:
+                    result["verdict"] = "⚠️ IP 通过但 Cookie 无效，请重新去浏览器复制完整 Cookie"
+                else:
+                    via = "代理" if effective_proxy else "服务器直连"
+                    result["verdict"] = f"✅ {via}的 IP 没被风控。再开 use_cookie=true 测一次完整流程。"
             elif status == 10018:
                 via = "代理" if effective_proxy else "服务器"
-                result["verdict"] = f"❌ {via}的 IP 被百度风控了。" + ("换一个代理或服务器。" if not effective_proxy else "这个代理 IP 也被拉黑了，换一家代理或加 sticky session 试试。")
-            elif status == 0:
-                result["verdict"] = "✅ 居然不需要登录就能查（极罕见）"
+                if use_cookie:
+                    result["verdict"] = f"❌ 即使带 Cookie 也被 10018 风控。{via}的 IP 被深度拉黑。"
+                else:
+                    result["verdict"] = f"❌ {via}的 IP 没 Cookie 时被 10018 风控。建议再用 use_cookie=true 测一次——有时候带 Cookie 反而能过。"
             else:
                 result["verdict"] = f"⚠️ 未预期的状态码 {status}，百度可能改了接口"
         except Exception:

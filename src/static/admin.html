@@ -554,25 +554,46 @@ function statusLabel(s) {
 
 async function runDiagnose() {
     if (!token) { showTokenModal(); return; }
-    const proxy = prompt(
+    const choice = prompt(
         '【网络诊断】\n\n' +
-        '直接确定 → 测试服务器直连百度（不走代理）\n' +
-        '在框里填代理 → 测试经过代理后能不能绕过风控\n\n' +
-        '代理格式举例：\n' +
-        '  http://用户名:密码@代理IP:端口\n' +
-        '  socks5://用户名:密码@代理IP:端口\n\n' +
-        '（留空 = 直连测试）',
-        ''
+        '选项 1 = 纯 IP 测试（不带 Cookie，只看 IP 是否被风控）\n' +
+        '选项 2 = 完整模拟抓取（带 Cookie + warmup，最贴近真实流程）★ 推荐\n' +
+        '选项 3 = 自定义代理 + 完整流程\n\n' +
+        '输入 1、2 或 3：',
+        '2'
     );
-    if (proxy === null) return;
-    showToast(proxy ? '正在通过代理测试...' : '正在直连测试...', '');
+    if (choice === null) return;
+
+    let qs = '';
+    let mode = '';
+    if (choice === '1') {
+        mode = '纯 IP 测试（不带 Cookie）';
+        qs = '?use_cookie=false&warmup=false';
+    } else if (choice === '2') {
+        mode = '完整模拟抓取（带 Cookie + warmup）';
+        qs = '?use_cookie=true&warmup=true';
+    } else if (choice === '3') {
+        const proxy = prompt('请输入代理 URL（http://user:pass@host:port 或 socks5://...）', '');
+        if (!proxy) return;
+        mode = '自定义代理 + 完整流程';
+        qs = '?use_cookie=true&warmup=true&proxy=' + encodeURIComponent(proxy);
+    } else {
+        alert('无效选择');
+        return;
+    }
+
+    showToast('正在' + mode + '...', '');
     try {
-        const qs = proxy ? '?proxy=' + encodeURIComponent(proxy) : '';
         const r = await api('/api/diagnose' + qs);
         const detail = [
             '【诊断结果】',
             '',
-            '请求方式: ' + (r.proxy || '直连'),
+            '测试模式: ' + mode,
+            '代理: ' + (r.proxy || '直连'),
+            'Warmup: ' + (r.warmup ? '是 (HTTP ' + (r.warmup_status || '?') + ')' : '否'),
+            '带 Cookie: ' + (r.use_cookie ? '是 (' + (r.cookie_length || 0) + ' 字符)' : '否'),
+            '耗时: ' + r.elapsed_seconds + ' 秒',
+            'HTTP 状态码: ' + r.http_status,
             '百度状态码: ' + r.baidu_status,
             '百度返回: ' + (r.baidu_message || '').slice(0, 200),
             '',
