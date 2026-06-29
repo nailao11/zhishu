@@ -140,7 +140,7 @@ def _do_diagnose(
         if len(cookie_str) < 100:
             result["verdict"] = (
                 f"❌ Cookie 太短了（仅 {len(cookie_str)} 字符）。"
-                "真实 Baidu Cookie 至少 500+ 字符，请重新从浏览器 DevTools 复制完整 Cookie。"
+                "真实 Baidu Cookie 一般 2000+ 字符，请重新从浏览器 DevTools 复制完整 Cookie。"
             )
             return result
         try:
@@ -330,8 +330,12 @@ async def delete_keyword(keyword: str, db: Database = Depends(get_db)):
 async def update_cookie(req: CookieRequest):
     """通过 API 更新 Cookie。免去 SSH 登录服务器编辑文件的麻烦。"""
     cookie = req.cookie.strip()
-    if len(cookie) < 50:
-        raise HTTPException(status_code=400, detail="Cookie 长度过短，可能不正确")
+    if len(cookie) < 100:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cookie 长度仅 {len(cookie)} 字符，太短了。真实 Baidu Cookie 一般 2000+ 字符，"
+                   "请重新从浏览器 DevTools 复制完整 Cookie 整行。",
+        )
     try:
         # 用新 Cookie 做一次测试请求验证可用——必须走配置的代理（否则用服务器 IP 永远失败）
         test = BaiduIndexCrawler(cookie=cookie, proxy=config.HTTP_PROXY or None)

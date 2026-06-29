@@ -49,10 +49,20 @@
 
 ## 一键安装（推荐）
 
-SSH 登录你的服务器后，执行：
+SSH 登录你的服务器后，执行（替换 `<branch>` 为你想部署的分支，比如 `main`）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nailao11/zhishu/claude/baidu-index-tool-comparison-tsml69/scripts/install.sh | sudo bash
+REPO_BRANCH=<branch> curl -fsSL \
+  https://raw.githubusercontent.com/nailao11/zhishu/<branch>/scripts/install.sh \
+  | sudo -E bash
+```
+
+或者先把仓库 clone 下来再装（推荐，脚本会自动用当前 checkout 的分支）：
+
+```bash
+git clone https://github.com/nailao11/zhishu.git && cd zhishu
+git checkout <branch>      # 切到你想用的分支
+sudo bash scripts/install.sh
 ```
 
 脚本会自动：
@@ -289,10 +299,11 @@ A：
 sudo bash /opt/zhishu/scripts/update.sh
 ```
 
-或者手动：
+或者手动（默认拉取 `/opt/zhishu` 当前 checkout 的分支，可用 `REPO_BRANCH=xxx` 覆盖）：
 ```bash
-sudo git -C /opt/zhishu fetch origin claude/baidu-index-tool-comparison-tsml69
-sudo git -C /opt/zhishu reset --hard origin/claude/baidu-index-tool-comparison-tsml69
+BRANCH=$(sudo git -C /opt/zhishu rev-parse --abbrev-ref HEAD)
+sudo git -C /opt/zhishu fetch origin "$BRANCH"
+sudo git -C /opt/zhishu reset --hard "origin/$BRANCH"
 sudo /opt/zhishu/venv/bin/pip install -r /opt/zhishu/requirements.txt
 sudo chown -R zhishu:zhishu /opt/zhishu
 sudo systemctl restart zhishu-api
