@@ -66,11 +66,12 @@ def load_cookie() -> str:
         # 否则取第一行作为完整 Cookie
         cookie = lines[0]
 
-    # 真实 Baidu Cookie 一般 2000+ 字符；过短大概率是占位符或没贴完整
-    if len(cookie) < 100:
+    # 50 字符以下基本是 "test" / "BAIDUID=xxx" 这种占位符；
+    # 真实 Cookie 即使只剩必要字段一般也有几百字符。具体长度不强约束。
+    if len(cookie) < 50:
         raise ValueError(
-            f"Cookie 长度仅 {len(cookie)} 字符，太短了（真实 Cookie 一般 2000+ 字符）。"
-            f"这可能是占位符示例，请把浏览器里完整的 Cookie 写入 {COOKIE_FILE}"
+            f"Cookie 长度仅 {len(cookie)} 字符，看起来是占位符或不完整。"
+            f"请从浏览器 DevTools 复制完整的 Cookie 整行（包含 BDUSS 字段）写入 {COOKIE_FILE}"
         )
 
     # HTTP Header 必须 ASCII；占位符里的中文括号会导致 UnicodeEncodeError
@@ -80,6 +81,15 @@ def load_cookie() -> str:
         raise ValueError(
             f"Cookie 含有非 ASCII 字符（中文/中文标点），HTTP 头不允许。"
             f"这通常是因为粘错了示例占位符。请重新从浏览器 DevTools 复制完整 Cookie。"
+        )
+
+    # BDUSS 是百度的登录态 token（BDUSS_BFESS 是同义的 BFE 边缘版本）。
+    # 两者都没有 = Cookie 抓取时账号没登录，发出去百度会直接返回"未登录"。
+    # 这里早判定一下，给用户更精确的提示。
+    if "BDUSS=" not in cookie and "BDUSS_BFESS=" not in cookie:
+        raise ValueError(
+            "Cookie 里没有 BDUSS / BDUSS_BFESS 字段，说明抓 Cookie 时浏览器还没登录百度账号。"
+            "请先在浏览器里登录 https://index.baidu.com 之后再 F12 复制 Cookie。"
         )
 
     return cookie
