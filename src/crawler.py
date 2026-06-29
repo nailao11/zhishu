@@ -226,7 +226,9 @@ class BaiduIndexCrawler:
             raise BaiduIndexError(f"响应不是合法 JSON: {e}; body={resp.text[:200]}")
 
         status = data.get("status")
-        message = data.get("message", "")
+        # 百度有时候返回 message=0 (int) 而不是字符串，统一转成字符串再判断
+        raw_message = data.get("message", "")
+        message = str(raw_message) if raw_message is not None else ""
         if status == 10000 or "未登录" in message or "not login" in message.lower():
             raise CookieExpiredError("Cookie 已失效，请重新获取并更新")
         if status == 10001:
