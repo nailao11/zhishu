@@ -75,6 +75,7 @@ class CookieRequest(BaseModel):
 class DiagnoseRequest(BaseModel):
     proxy: Optional[str] = Field(None, description="可选代理URL")
     cookie: Optional[str] = Field(None, description="可选 Cookie 字符串；不传则只测 IP")
+    cipher_text: Optional[str] = Field(None, description="可选 Cipher-Text 头（百度反爬必需，从浏览器复制）")
     warmup: bool = Field(True, description="是否先访问主页 warmup")
     timeout: int = Field(90, description="超时秒数")
 
@@ -117,6 +118,7 @@ def _do_diagnose(
     cookie: Optional[str],
     warmup: bool,
     timeout: int,
+    cipher_text: Optional[str] = None,
 ) -> dict:
     """实际执行诊断的核心逻辑，给 GET 和 POST 两个端点共用。"""
     import time as _time
@@ -126,6 +128,7 @@ def _do_diagnose(
     effective_proxy = (proxy or config.HTTP_PROXY or "").strip() or None
     cookie_str = (cookie or "").strip()
     use_cookie = bool(cookie_str)
+    cipher_str = (cipher_text or "").strip()
 
     result = {
         "tested_at": datetime.now().isoformat(timespec="seconds"),
@@ -133,6 +136,8 @@ def _do_diagnose(
         "timeout_seconds": timeout,
         "use_cookie": use_cookie,
         "cookie_length": len(cookie_str) if use_cookie else 0,
+        "use_cipher_text": bool(cipher_str),
+        "cipher_text_length": len(cipher_str),
         "warmup": warmup,
     }
 
@@ -183,6 +188,8 @@ def _do_diagnose(
         req_headers = {**DEFAULT_HEADERS}
         if cookie_str:
             req_headers["Cookie"] = cookie_str
+        if cipher_str:
+            req_headers["Cipher-Text"] = cipher_str
         resp = session.get(
             BAIDU_INDEX_URL,
             params=params,
@@ -254,7 +261,7 @@ async def diagnose_get(
 @app.post("/api/diagnose", dependencies=[Depends(verify_token)])
 async def diagnose_post(req: DiagnoseRequest):
     """POST 版，推荐使用——Cookie 在 body 里不受 URL 长度限制。"""
-    return _do_diagnose(req.proxy, req.cookie, req.warmup, req.timeout)
+    return _do_diagnose(req.proxy, req.cookie, req.warmup, req.timeout, req.cipher_text)
 
 
 @app.post("/api/query", dependencies=[Depends(verify_token)])
