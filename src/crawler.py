@@ -118,10 +118,12 @@ class BaiduIndexCrawler:
         impersonate: str = "chrome120",
         proxy: str | None = None,
         verify_ssl: bool | None = None,
+        cipher_text: str | None = None,
     ):
         if not cookie or not cookie.strip():
             raise ValueError("Cookie 不能为空")
         self.cookie = cookie.strip()
+        self.cipher_text = (cipher_text or "").strip() or None
         self.proxy = (proxy or "").strip() or None
         self.session = requests.Session(impersonate=impersonate)
         if self.proxy:
@@ -151,7 +153,10 @@ class BaiduIndexCrawler:
             self._warmed_up = True  # 不重试
 
     def _headers(self) -> dict:
-        return {**DEFAULT_HEADERS, "Cookie": self.cookie}
+        headers = {**DEFAULT_HEADERS, "Cookie": self.cookie}
+        if self.cipher_text:
+            headers["Cipher-Text"] = self.cipher_text
+        return headers
 
     @staticmethod
     def _decrypt(key: str, data: str) -> str:

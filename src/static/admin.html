@@ -279,7 +279,16 @@ tbody tr:hover { background: #f8f9fa; }
                 <button type="button" class="small" style="background:#6c757d;margin-left:8px;" onclick="$('diagCookie').value=''">清空</button>
             </label>
             <textarea id="diagCookie" placeholder="完整 Baidu Cookie 字符串（一般 500-2000 字符）。留空 = 不带 Cookie 测试纯 IP" style="min-height: 100px;"></textarea>
-            <small style="color: #888; font-size: 12px;">从浏览器 F12 → Network → 请求头里复制 Cookie 整行。这次测试用的 Cookie 不会保存到服务器</small>
+            <small style="color: #888; font-size: 12px;">从浏览器 F12 → Network → 请求头里复制 Cookie 整行</small>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+            <label style="display: block; font-weight: 500; margin-bottom: 6px;">
+                🔑 Cipher-Text（百度反爬必需！）
+                <button type="button" class="small" style="background:#6c757d;margin-left:8px;" onclick="$('diagCipher').value=''">清空</button>
+            </label>
+            <textarea id="diagCipher" placeholder="从浏览器同一个请求里复制 Cipher-Text 头的值（格式：数字_数字_一长串编码）。这是百度风控的关键签名，没它就 10018！" style="min-height: 80px;"></textarea>
+            <small style="color: #c0392b; font-size: 12px;">⚠️ 这是绕过 10018 的关键！F12 → Network → 找请求 → Request Headers 里复制 Cipher-Text 整行</small>
         </div>
 
         <div style="margin-bottom: 20px;">
@@ -614,6 +623,7 @@ function renderDiagnoseResult(r) {
     row('代理', escapeHtml(r.proxy || '直连'));
     row('Warmup', r.warmup ? `是 (HTTP ${r.warmup_status || '?'})` + (r.warmup_error ? ` <span style="color:#dc3545;">${escapeHtml(r.warmup_error)}</span>` : '') : '否');
     row('带 Cookie', r.use_cookie ? `是 (${r.cookie_length} 字符)` : '否（仅测 IP）');
+    row('带 Cipher-Text', r.use_cipher_text ? `是 (${r.cipher_text_length} 字符) 🔑` : '<span style="color:#c0392b;">否（很可能因此 10018！）</span>');
     row('耗时', r.elapsed_seconds !== undefined ? r.elapsed_seconds + ' 秒' : undefined);
     row('HTTP 状态码', r.http_status);
 
@@ -651,6 +661,7 @@ function renderDiagnoseResult(r) {
 async function runDiagnoseTest() {
     const proxy = $('diagProxy').value.trim();
     const cookie = $('diagCookie').value.trim();
+    const cipherText = $('diagCipher').value.trim();
     const warmup = $('diagWarmup').checked;
 
     const btn = $('diagRunBtn');
@@ -665,6 +676,7 @@ async function runDiagnoseTest() {
             body: JSON.stringify({
                 proxy: proxy || null,
                 cookie: cookie || null,
+                cipher_text: cipherText || null,
                 warmup: warmup,
                 timeout: 90,
             }),
