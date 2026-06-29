@@ -137,10 +137,10 @@ def _do_diagnose(
     }
 
     if use_cookie:
-        if len(cookie_str) < 100:
+        if len(cookie_str) < 50:
             result["verdict"] = (
-                f"❌ Cookie 太短了（仅 {len(cookie_str)} 字符）。"
-                "真实 Baidu Cookie 一般 2000+ 字符，请重新从浏览器 DevTools 复制完整 Cookie。"
+                f"❌ Cookie 太短了（仅 {len(cookie_str)} 字符），看起来是占位符。"
+                "请从浏览器 DevTools 复制完整 Cookie 整行（包含 BDUSS 字段）。"
             )
             return result
         try:
@@ -149,6 +149,12 @@ def _do_diagnose(
             result["verdict"] = (
                 "❌ Cookie 含有非 ASCII 字符（中文等），HTTP 头不允许。"
                 "你贴的可能不是真实 Cookie，请重新去浏览器复制。"
+            )
+            return result
+        if "BDUSS=" not in cookie_str and "BDUSS_BFESS=" not in cookie_str:
+            result["verdict"] = (
+                "❌ Cookie 里没有 BDUSS / BDUSS_BFESS——说明抓 Cookie 时浏览器还没登录百度。"
+                "请先登录 https://index.baidu.com 之后再 F12 复制 Cookie。"
             )
             return result
 
@@ -330,11 +336,24 @@ async def delete_keyword(keyword: str, db: Database = Depends(get_db)):
 async def update_cookie(req: CookieRequest):
     """通过 API 更新 Cookie。免去 SSH 登录服务器编辑文件的麻烦。"""
     cookie = req.cookie.strip()
-    if len(cookie) < 100:
+    if len(cookie) < 50:
         raise HTTPException(
             status_code=400,
-            detail=f"Cookie 长度仅 {len(cookie)} 字符，太短了。真实 Baidu Cookie 一般 2000+ 字符，"
-                   "请重新从浏览器 DevTools 复制完整 Cookie 整行。",
+            detail=f"Cookie 长度仅 {len(cookie)} 字符，看起来是占位符或不完整。"
+                   "请从浏览器 DevTools 复制完整 Cookie 整行（包含 BDUSS 字段）。",
+        )
+    try:
+        cookie.encode("ascii")
+    except UnicodeEncodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="Cookie 含非 ASCII 字符，HTTP 头不接受（多半粘到了示例文本里的中文括号）。",
+        )
+    if "BDUSS=" not in cookie and "BDUSS_BFESS=" not in cookie:
+        raise HTTPException(
+            status_code=400,
+            detail="Cookie 里没有 BDUSS / BDUSS_BFESS 字段——说明抓 Cookie 时浏览器还没登录百度。"
+                   "请先登录 https://index.baidu.com 之后再 F12 复制 Cookie。",
         )
     try:
         # 用新 Cookie 做一次测试请求验证可用——必须走配置的代理（否则用服务器 IP 永远失败）
