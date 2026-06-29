@@ -1,0 +1,4 @@
+# Paste your Cipher-Text header value below (no quotes), then save.
+# Same place you grabbed Cookie from: F12 -> Network -> request ->
+# Request Headers -> find "Cipher-Text" line -> copy its value.
+# Format looks like: <numbers>_<numbers>_<long-base64-ish-string>

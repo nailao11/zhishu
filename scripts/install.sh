@@ -2,39 +2,15 @@
 #
 # Zhishu 一键安装脚本（Debian/Ubuntu）
 #
-# 用法 A（curl-pipe-bash，从远端拉指定分支）：
-#   REPO_BRANCH=main curl -fsSL \
-#     https://raw.githubusercontent.com/nailao11/zhishu/main/scripts/install.sh \
-#     | sudo -E bash
-#
-# 用法 B（本地 clone，直接用 working tree 当前分支）：
-#   git clone https://github.com/nailao11/zhishu.git && cd zhishu
-#   sudo bash scripts/install.sh
-#   （会自动用当前 checkout 的分支，不再硬编码）
-#
-# 可覆盖变量：
-#   INSTALL_DIR    安装目录，默认 /opt/zhishu
-#   SERVICE_USER   运行用户，默认 zhishu
-#   REPO_URL       远端仓库地址
-#   REPO_BRANCH    分支名（远端模式必填；本地模式留空则用当前 checkout）
+# 用法：
+#   curl -fsSL https://raw.githubusercontent.com/nailao11/zhishu/main/scripts/install.sh | sudo bash
+#   或克隆仓库后直接运行：sudo bash scripts/install.sh
 #
 set -euo pipefail
 
 INSTALL_DIR="${INSTALL_DIR:-/opt/zhishu}"
 SERVICE_USER="${SERVICE_USER:-zhishu}"
 REPO_URL="${REPO_URL:-https://github.com/nailao11/zhishu.git}"
-REPO_BRANCH="${REPO_BRANCH:-}"
-
-# 如果脚本是从本地 clone 运行的，自动用 working tree 的分支，免去硬编码
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
-LOCAL_REPO=""
-if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/../.git" ]; then
-    LOCAL_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
-    if [ -z "$REPO_BRANCH" ]; then
-        REPO_BRANCH="$(git -C "$LOCAL_REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
-    fi
-fi
-# 还没拿到分支名（远端模式但用户没设 REPO_BRANCH）兜底
 REPO_BRANCH="${REPO_BRANCH:-main}"
 
 # -------- 颜色输出 --------
@@ -68,18 +44,12 @@ else
 fi
 
 # -------- 3. 克隆或更新代码 --------
-info "Step 3/7: 部署代码到 ${INSTALL_DIR}（分支：${REPO_BRANCH}）"
+info "Step 3/7: 部署代码到 ${INSTALL_DIR}"
 if [ -d "$INSTALL_DIR/.git" ]; then
     info "已存在仓库，执行 pull"
-    git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
     git -C "$INSTALL_DIR" fetch origin "$REPO_BRANCH"
     git -C "$INSTALL_DIR" checkout "$REPO_BRANCH"
     git -C "$INSTALL_DIR" reset --hard "origin/$REPO_BRANCH"
-elif [ -n "$LOCAL_REPO" ]; then
-    info "从本地 clone 部署：${LOCAL_REPO} → ${INSTALL_DIR}"
-    git clone --branch "$REPO_BRANCH" "$LOCAL_REPO" "$INSTALL_DIR"
-    # 改 origin 指向真实远端，方便日后 update.sh 拉新版本
-    git -C "$INSTALL_DIR" remote set-url origin "$REPO_URL"
 else
     git clone --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR"
 fi
@@ -108,12 +78,14 @@ fi
 
 if [ ! -f "$INSTALL_DIR/config/cookies.txt" ]; then
     cp "$INSTALL_DIR/config/cookies.txt.example" "$INSTALL_DIR/config/cookies.txt"
-    warn "Cookie 文件还未配置，请先编辑 $INSTALL_DIR/config/cookies.txt"
-    warn "或通过 API 调用 POST /api/cookie 上传"
 fi
+if [ ! -f "$INSTALL_DIR/config/cipher_text.txt" ]; then
+    cp "$INSTALL_DIR/config/cipher_text.txt.example" "$INSTALL_DIR/config/cipher_text.txt"
+fi
+warn "凭证文件还没配置，去 /admin 网页一次性粘贴 Cookie + Cipher-Text 即可"
 
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
-chmod 600 "$INSTALL_DIR/.env" "$INSTALL_DIR/config/cookies.txt"
+chmod 600 "$INSTALL_DIR/.env" "$INSTALL_DIR/config/cookies.txt" "$INSTALL_DIR/config/cipher_text.txt" 2>/dev/null || true
 
 # -------- 6. 安装 systemd 服务 --------
 info "Step 6/7: 安装 systemd 服务"

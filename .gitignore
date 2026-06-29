@@ -18,6 +18,7 @@ logs/
 
 # 环境配置（敏感）
 config/cookies.txt
+config/cipher_text.txt
 .env
 
 # IDE

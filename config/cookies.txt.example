@@ -1,9 +1,5 @@
-# Paste your full Baidu cookie below (no quotes), then save.
-# How to get it:
-#   1. Open Chrome / Edge, log in to https://index.baidu.com
-#   2. F12 -> Network tab -> Refresh the page
-#   3. Click any request to index.baidu.com
-#   4. In Request Headers, find Cookie and copy the full value
-#   5. Replace the placeholder line below with what you copied
+# Paste your full session Cookie below (no quotes), then save.
+# Open target site -> log in -> F12 -> Network -> any request ->
+# Request Headers -> Cookie -> copy the whole line and put it here.
 #
-# (Do NOT leave this placeholder line in production - the loader will reject it.)
+# (Do NOT leave only this header in production - the loader requires real content.)

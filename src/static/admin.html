@@ -202,13 +202,20 @@ tbody tr:hover { background: #f8f9fa; }
 <div class="container">
     <div class="grid">
         <div class="card">
-            <h2><span class="icon">🍪</span> 第一步：上传 Cookie</h2>
+            <h2><span class="icon">🔐</span> 凭证管理（Cookie + Cipher-Text）</h2>
             <div class="help">
-                打开浏览器登录 <a href="https://index.baidu.com" target="_blank">百度指数</a>，按 F12 → Network → 刷新 → 任意请求中复制 Cookie 整行，粘贴到下面。Cookie 一般几天失效，失效后重新做一次即可。
+                两个都要！打开浏览器登录目标站点，F12 → Network → 找一个 API 请求，在 Request Headers 里**同时复制 Cookie 和 Cipher-Text**。两者过期后一起重新复制即可。
             </div>
-            <textarea id="cookieInput" placeholder="BAIDUID=xxxx; BIDUPSID=xxxx; PSTM=xxxx; ... （完整 Cookie 字符串，几百字符）"></textarea>
+            <div id="credStatus" style="margin-bottom: 12px; font-size: 13px;"></div>
+
+            <label style="display: block; font-weight: 500; margin-bottom: 4px; font-size: 13px;">Cookie</label>
+            <textarea id="cookieInput" placeholder="完整 Cookie 字符串（一般 1000-2500 字符）" style="min-height: 70px; font-size: 11px;"></textarea>
+
+            <label style="display: block; font-weight: 500; margin: 10px 0 4px; font-size: 13px;">Cipher-Text 🔑</label>
+            <textarea id="cipherInput" placeholder="完整 Cipher-Text 字符串（格式：数字_数字_一长串编码，约 400-500 字符）" style="min-height: 70px; font-size: 11px;"></textarea>
+
             <div class="form-row">
-                <button onclick="updateCookie()">验证并保存 Cookie</button>
+                <button onclick="updateCookie()">验证并保存凭证</button>
                 <span id="cookieStatus" style="font-size: 13px; color: #666;"></span>
             </div>
         </div>
@@ -436,23 +443,58 @@ async function deleteKeyword(encoded, display) {
 
 async function updateCookie() {
     const cookie = $('cookieInput').value.trim();
+    const cipherText = $('cipherInput').value.trim();
     if (!cookie) { showToast('请先粘贴 Cookie', 'error'); return; }
     const btn = event.target;
     btn.disabled = true;
     const oldText = btn.textContent;
     btn.textContent = '验证中...';
-    $('cookieStatus').textContent = '正在用一次测试请求验证 Cookie...';
+    $('cookieStatus').textContent = '正在用一次测试请求验证凭证...';
     try {
-        await api('/api/cookie', { method: 'POST', body: JSON.stringify({cookie}) });
-        $('cookieStatus').innerHTML = '<span style="color:#28a745;">✓ Cookie 验证通过并已保存</span>';
-        showToast('Cookie 已保存', 'success');
+        const r = await api('/api/cookie', {
+            method: 'POST',
+            body: JSON.stringify({cookie, cipher_text: cipherText || null}),
+        });
+        const cipherInfo = cipherText ? ` + Cipher-Text(${r.cipher_text_length}字符)` : '';
+        $('cookieStatus').innerHTML = `<span style="color:#28a745;">✓ 凭证已验证保存（Cookie ${r.cookie_length}字符${cipherInfo}）</span>`;
+        showToast('凭证已保存', 'success');
         $('cookieInput').value = '';
+        $('cipherInput').value = '';
+        loadCredStatus();
     } catch (e) {
         $('cookieStatus').innerHTML = `<span style="color:#dc3545;">✗ ${escapeHtml(e.message)}</span>`;
         showToast('保存失败：' + e.message, 'error');
     } finally {
         btn.disabled = false;
         btn.textContent = oldText;
+    }
+}
+
+async function loadCredStatus() {
+    if (!token) return;
+    try {
+        const r = await api('/api/credentials/status');
+        const parts = [];
+        if (r.cookie.configured && r.cookie.valid_format) {
+            parts.push(`<span style="color:#28a745;">● Cookie 已保存 (${r.cookie.length} 字符)</span>`);
+        } else {
+            parts.push(`<span style="color:#dc3545;">● Cookie 未配置或无效</span>`);
+        }
+        if (r.cipher_text.configured) {
+            const v = r.cipher_text.validity;
+            if (v && v.valid) {
+                const remaining = v.remaining_human;
+                const color = v.remaining_seconds > 3600 ? '#28a745' : (v.remaining_seconds > 600 ? '#fd7e14' : '#dc3545');
+                parts.push(`<span style="color:${color};">● Cipher-Text 有效，剩余 ${remaining}</span>`);
+            } else {
+                parts.push(`<span style="color:#dc3545;">● Cipher-Text 已过期，请重新获取并保存</span>`);
+            }
+        } else {
+            parts.push(`<span style="color:#dc3545;">● Cipher-Text 未配置（绕过反爬必需，强烈建议配置！）</span>`);
+        }
+        $('credStatus').innerHTML = parts.join('<br>');
+    } catch (e) {
+        $('credStatus').innerHTML = '';
     }
 }
 
@@ -694,6 +736,7 @@ async function loadAll() {
     if (!token) return;
     loadKeywords();
     loadRuns();
+    loadCredStatus();
 }
 
 updateTokenStatus();

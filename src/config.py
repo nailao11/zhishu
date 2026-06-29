@@ -12,6 +12,7 @@ CONFIG_DIR = PROJECT_ROOT / "config"
 DATA_DIR = PROJECT_ROOT / "data"
 
 COOKIE_FILE = Path(os.environ.get("ZHISHU_COOKIE_FILE", CONFIG_DIR / "cookies.txt"))
+CIPHER_FILE = Path(os.environ.get("ZHISHU_CIPHER_FILE", CONFIG_DIR / "cipher_text.txt"))
 DB_PATH = Path(os.environ.get("ZHISHU_DB_PATH", DATA_DIR / "zhishu.db"))
 LOG_DIR = Path(os.environ.get("ZHISHU_LOG_DIR", PROJECT_ROOT / "logs"))
 
@@ -99,6 +100,69 @@ def save_cookie(cookie: str) -> None:
     """保存 Cookie 到文件"""
     COOKIE_FILE.parent.mkdir(parents=True, exist_ok=True)
     COOKIE_FILE.write_text(cookie.strip() + "\n", encoding="utf-8")
+
+
+def load_cipher_text() -> str:
+    """读取 Cipher-Text。文件不存在或为空时返回空字符串（不强制要求）。"""
+    if not CIPHER_FILE.exists():
+        return ""
+    text = CIPHER_FILE.read_text(encoding="utf-8").strip()
+    if not text:
+        return ""
+    lines = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    if not lines:
+        return ""
+    return lines[0]
+
+
+def save_cipher_text(cipher_text: str) -> None:
+    """保存 Cipher-Text 到文件"""
+    CIPHER_FILE.parent.mkdir(parents=True, exist_ok=True)
+    CIPHER_FILE.write_text(cipher_text.strip() + "\n", encoding="utf-8")
+
+
+def parse_cipher_text_validity(cipher_text: str) -> dict:
+    """解析 Cipher-Text 的有效期。格式：<ms1>_<ms2>_<encrypted>"""
+    import time as _time
+    if not cipher_text or "_" not in cipher_text:
+        return {"valid": False, "reason": "格式不对"}
+    parts = cipher_text.split("_", 2)
+    if len(parts) < 3:
+        return {"valid": False, "reason": "格式不对（应该是 ts1_ts2_data）"}
+    try:
+        ts1 = int(parts[0])
+        ts2 = int(parts[1])
+    except ValueError:
+        return {"valid": False, "reason": "时间戳不是数字"}
+
+    now_ms = int(_time.time() * 1000)
+    # 取两个时间戳里较大的一个作为过期时间
+    expire_ms = max(ts1, ts2)
+    issue_ms = min(ts1, ts2)
+    remaining_sec = (expire_ms - now_ms) / 1000
+    return {
+        "valid": remaining_sec > 0,
+        "issued_at": issue_ms,
+        "expires_at": expire_ms,
+        "remaining_seconds": int(remaining_sec),
+        "remaining_human": _human_duration(int(remaining_sec)),
+    }
+
+
+def _human_duration(seconds: int) -> str:
+    if seconds <= 0:
+        return "已过期"
+    if seconds < 60:
+        return f"{seconds} 秒"
+    if seconds < 3600:
+        return f"{seconds // 60} 分钟"
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    return f"{h} 小时 {m} 分钟" if m else f"{h} 小时"
 
 
 def ensure_dirs() -> None:

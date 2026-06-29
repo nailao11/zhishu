@@ -37,7 +37,12 @@ def get_db() -> Database:
 
 def get_crawler() -> BaiduIndexCrawler:
     cookie = config.load_cookie()
-    return BaiduIndexCrawler(cookie=cookie, proxy=config.HTTP_PROXY or None)
+    cipher = config.load_cipher_text()
+    return BaiduIndexCrawler(
+        cookie=cookie,
+        proxy=config.HTTP_PROXY or None,
+        cipher_text=cipher or None,
+    )
 
 
 def verify_token(
@@ -70,6 +75,7 @@ class KeywordsRequest(BaseModel):
 
 class CookieRequest(BaseModel):
     cookie: str = Field(..., description="完整的 Cookie 字符串")
+    cipher_text: Optional[str] = Field(None, description="Cipher-Text 签名头（强烈建议一起提交）")
 
 
 class DiagnoseRequest(BaseModel):
@@ -341,8 +347,10 @@ async def delete_keyword(keyword: str, db: Database = Depends(get_db)):
 
 @app.post("/api/cookie", dependencies=[Depends(verify_token)])
 async def update_cookie(req: CookieRequest):
-    """通过 API 更新 Cookie。免去 SSH 登录服务器编辑文件的麻烦。"""
+    """更新凭证：Cookie + Cipher-Text。会用新凭证试调一次确认有效。"""
     cookie = req.cookie.strip()
+    cipher = (req.cipher_text or "").strip()
+
     if len(cookie) < 50:
         raise HTTPException(
             status_code=400,
@@ -363,16 +371,65 @@ async def update_cookie(req: CookieRequest):
                    "请先登录 https://index.baidu.com 之后再 F12 复制 Cookie。",
         )
     try:
-        # 用新 Cookie 做一次测试请求验证可用——必须走配置的代理（否则用服务器 IP 永远失败）
-        test = BaiduIndexCrawler(cookie=cookie, proxy=config.HTTP_PROXY or None)
-        test.fetch_keywords(["百度"], days=7)
+        cookie.encode("ascii")
+    except UnicodeEncodeError:
+        raise HTTPException(status_code=400, detail="Cookie 含非 ASCII 字符（中文等），请重新复制")
+
+    try:
+        test = BaiduIndexCrawler(
+            cookie=cookie,
+            proxy=config.HTTP_PROXY or None,
+            cipher_text=cipher or None,
+        )
+        test.fetch_keywords(["苹果"], days=7)
     except CookieExpiredError:
-        raise HTTPException(status_code=400, detail="新 Cookie 验证失败，请重新获取")
+        raise HTTPException(status_code=400, detail="凭证验证失败，可能 Cookie 或 Cipher-Text 过期，请重新获取")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Cookie 验证失败: {e}")
+        raise HTTPException(status_code=400, detail=f"凭证验证失败: {e}")
 
     config.save_cookie(cookie)
-    return {"status": "ok", "message": "Cookie 已更新并验证通过"}
+    if cipher:
+        config.save_cipher_text(cipher)
+
+    return {
+        "status": "ok",
+        "message": "凭证已更新并验证通过",
+        "cookie_length": len(cookie),
+        "cipher_text_length": len(cipher),
+    }
+
+
+@app.get("/api/credentials/status", dependencies=[Depends(verify_token)])
+async def credentials_status():
+    """查看当前凭证状态。让前端能展示有效期、提醒该刷新了。"""
+    cookie_exists = config.COOKIE_FILE.exists()
+    cookie_len = 0
+    cookie_ok = False
+    if cookie_exists:
+        try:
+            c = config.load_cookie()
+            cookie_len = len(c)
+            cookie_ok = True
+        except Exception:
+            cookie_ok = False
+
+    cipher = config.load_cipher_text()
+    validity = config.parse_cipher_text_validity(cipher) if cipher else {
+        "valid": False, "reason": "未配置 Cipher-Text",
+    }
+
+    return {
+        "cookie": {
+            "configured": cookie_exists,
+            "valid_format": cookie_ok,
+            "length": cookie_len,
+        },
+        "cipher_text": {
+            "configured": bool(cipher),
+            "length": len(cipher),
+            "validity": validity,
+        },
+    }
 
 
 @app.get("/api/runs", dependencies=[Depends(verify_token)])
