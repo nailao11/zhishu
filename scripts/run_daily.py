@@ -68,7 +68,7 @@ def main() -> int:
         db.finish_run(run_id, success=0, fail=len(keywords), error=str(e))
         return 2
 
-    crawler = BaiduIndexCrawler(cookie=cookie)
+    crawler = BaiduIndexCrawler(cookie=cookie, proxy=config.HTTP_PROXY or None)
     success_count = 0
     fail_count = 0
     fatal_error: str | None = None

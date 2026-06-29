@@ -66,10 +66,10 @@ def load_cookie() -> str:
         # 否则取第一行作为完整 Cookie
         cookie = lines[0]
 
-    # 真实 Baidu Cookie 一般 500+ 字符；过短大概率是占位符或没贴完整
+    # 真实 Baidu Cookie 一般 2000+ 字符；过短大概率是占位符或没贴完整
     if len(cookie) < 100:
         raise ValueError(
-            f"Cookie 长度仅 {len(cookie)} 字符，太短了（真实 Cookie 至少 500+ 字符）。"
+            f"Cookie 长度仅 {len(cookie)} 字符，太短了（真实 Cookie 一般 2000+ 字符）。"
             f"这可能是占位符示例，请把浏览器里完整的 Cookie 写入 {COOKIE_FILE}"
         )
 
