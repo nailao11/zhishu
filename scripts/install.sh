@@ -28,7 +28,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # -------- 1. 安装系统依赖 --------
-info "Step 1/7: 安装系统依赖"
+info "Step 1/8: 安装系统依赖"
 apt-get update -qq
 apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip \
@@ -36,7 +36,7 @@ apt-get install -y --no-install-recommends \
     build-essential libffi-dev libssl-dev
 
 # -------- 2. 创建运行用户 --------
-info "Step 2/7: 创建运行用户 ${SERVICE_USER}"
+info "Step 2/8: 创建运行用户 ${SERVICE_USER}"
 if ! id "$SERVICE_USER" &>/dev/null; then
     useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER"
 else
@@ -44,7 +44,7 @@ else
 fi
 
 # -------- 3. 克隆或更新代码 --------
-info "Step 3/7: 部署代码到 ${INSTALL_DIR}"
+info "Step 3/8: 部署代码到 ${INSTALL_DIR}"
 if [ -d "$INSTALL_DIR/.git" ]; then
     info "已存在仓库，执行 pull"
     git -C "$INSTALL_DIR" fetch origin "$REPO_BRANCH"
@@ -55,7 +55,7 @@ else
 fi
 
 # -------- 4. 创建 Python 虚拟环境并安装依赖 --------
-info "Step 4/7: 创建 Python 虚拟环境"
+info "Step 4/8: 创建 Python 虚拟环境"
 if [ ! -d "$INSTALL_DIR/venv" ]; then
     python3 -m venv "$INSTALL_DIR/venv"
 fi
@@ -63,7 +63,7 @@ fi
 "$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt"
 
 # -------- 5. 准备数据目录和配置 --------
-info "Step 5/7: 准备目录和配置"
+info "Step 5/8: 准备目录和配置"
 mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/logs" "$INSTALL_DIR/config"
 
 if [ ! -f "$INSTALL_DIR/.env" ]; then
@@ -88,22 +88,40 @@ chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 chmod 600 "$INSTALL_DIR/.env" "$INSTALL_DIR/config/cookies.txt" "$INSTALL_DIR/config/cipher_text.txt" 2>/dev/null || true
 
 # -------- 6. 安装 systemd 服务 --------
-info "Step 6/7: 安装 systemd 服务"
+info "Step 6/8: 安装 systemd 服务"
 cp "$INSTALL_DIR/systemd/zhishu-api.service" /etc/systemd/system/zhishu-api.service
 systemctl daemon-reload
 systemctl enable zhishu-api.service
 systemctl restart zhishu-api.service
 
 # -------- 7. 安装 cron 定时任务 --------
-info "Step 7/7: 安装 cron 定时任务（每天 03:00 抓取）"
+info "Step 7/8: 安装 cron 定时任务（每天 03:00 抓取）"
 CRON_FILE=/etc/cron.d/zhishu-daily
 cat > "$CRON_FILE" <<EOF
-# 每天凌晨 3 点抓取百度指数
+# 每天凌晨 3 点抓取指数
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 0 3 * * * $SERVICE_USER cd $INSTALL_DIR && $INSTALL_DIR/venv/bin/python scripts/run_daily.py >> $INSTALL_DIR/logs/cron.log 2>&1
 EOF
 chmod 644 "$CRON_FILE"
+
+# -------- 8. 配置日志滚动 --------
+info "Step 8/8: 配置日志滚动（logrotate，保留 45 天）"
+LOGROTATE_FILE=/etc/logrotate.d/zhishu
+cat > "$LOGROTATE_FILE" <<EOF
+# 统一管理 api.log / cron.log / daily.log：每天滚动、保留 45 天、压缩归档
+$INSTALL_DIR/logs/*.log {
+    daily
+    rotate 45
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su $SERVICE_USER $SERVICE_USER
+}
+EOF
+chmod 644 "$LOGROTATE_FILE"
 
 # -------- 完成提示 --------
 echo ""
@@ -119,14 +137,9 @@ echo ""
 echo "  访问地址:   http://<服务器IP>:8000"
 echo "  API 文档:   http://<服务器IP>:8000/docs"
 echo ""
-echo "  下一步必做："
-echo "    1. 编辑 $INSTALL_DIR/config/cookies.txt 填入百度 Cookie"
-echo "       sudo nano $INSTALL_DIR/config/cookies.txt"
-echo "    2. 添加关键词："
-echo "       curl -X POST http://localhost:8000/api/keywords \\"
-echo "         -H 'Authorization: Bearer <你上面的Token>' \\"
-echo "         -H 'Content-Type: application/json' \\"
-echo "         -d '{\"keywords\":[\"python\",\"golang\"]}'"
-echo "    3. 测试一次抓取："
-echo "       sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python $INSTALL_DIR/scripts/run_daily.py"
+echo "  下一步必做（都在网页后台完成）："
+echo "    1. 浏览器打开 http://<服务器IP>:8000/admin ，输入上面的 Token"
+echo "    2. 在「凭证管理」粘贴 Cookie + Cipher-Text 保存"
+echo "    3. 在「管理关键词」添加要监控的关键词"
+echo "    4. 可点「实时抓取」立即验证，或等每天 03:00 自动运行"
 echo ""

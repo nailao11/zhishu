@@ -7,6 +7,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 from contextlib import contextmanager
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Iterable
 
@@ -207,7 +208,14 @@ class Database:
         fail: int,
         error: str | None = None,
     ) -> None:
-        status = "success" if not error and fail == 0 else ("partial" if not error else "failed")
+        # 状态只看成败计数：全成功=success，部分成功=partial，颗粒无收=failed。
+        # error 字段无论成败都如实记录原因，方便排查（不再因为有 error 就判 failed）。
+        if fail <= 0:
+            status = "success"
+        elif success > 0:
+            status = "partial"
+        else:
+            status = "failed"
         with self._lock, self._conn() as conn:
             conn.execute(
                 """
@@ -224,3 +232,20 @@ class Database:
             return [dict(r) for r in conn.execute(
                 "SELECT * FROM run_log ORDER BY id DESC LIMIT ?", (limit,)
             ).fetchall()]
+
+    # --------- 数据清理 ---------
+
+    def prune_old(self, retention_days: int = 45) -> dict:
+        """滚动清理：删除早于保留期的历史指数和运行记录。
+
+        每次采集都会重新覆盖最近 N 天的数据，所以超出保留期的旧数据没有保留价值。
+        删掉的页面空间会被后续写入复用，文件体积自然趋于稳定，无需 VACUUM。
+        """
+        if retention_days <= 0:
+            return {"daily_index_deleted": 0, "run_log_deleted": 0}
+        cutoff_date = (date.today() - timedelta(days=retention_days)).isoformat()
+        cutoff_ts = (datetime.now() - timedelta(days=retention_days)).strftime("%Y-%m-%d %H:%M:%S")
+        with self._lock, self._conn() as conn:
+            c1 = conn.execute("DELETE FROM daily_index WHERE date < ?", (cutoff_date,))
+            c2 = conn.execute("DELETE FROM run_log WHERE started_at < ?", (cutoff_ts,))
+            return {"daily_index_deleted": c1.rowcount, "run_log_deleted": c2.rowcount}

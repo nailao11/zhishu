@@ -12,9 +12,9 @@
 我自己想监控几十个关键词的热度变化，懒得每天点开网页手动查，就写了这个。
 
 - 一个 FastAPI 后端 + 一个 SQLite 数据库 + 一个浏览器后台页面
-- cron 定时跑，每天凌晨抓一次
+- cron 定时跑，每天凌晨抓一次，并滚动清理过期数据
 - 网页后台一栏粘贴 Cookie + Cipher-Text，验证通过就保存
-- 凭证过期前后台会显示剩余时间，到点了重新去浏览器复制一次粘上去
+- 后台会显示 Cipher-Text 的生成时间和已用多久，抓取开始失败时重新复制一次即可
 - HTTP API 想给别的脚本调也行
 ---
 
@@ -48,17 +48,23 @@ sudo grep ZHISHU_API_TOKEN /opt/zhishu/.env
 
 回 `/admin` 的「凭证管理」卡片，两个框分别粘进去，点保存。会先用一次测试请求验证。
 
-后台会显示 Cipher-Text 还剩多久过期（一般几小时），到点重新去浏览器复制就行。
+Cipher-Text 本身不带过期时间（约每天轮换一次），后台显示它的生成时间和已经用了多久；
+等到定时任务或实时抓取开始失败，再回浏览器重新复制一次即可。
 
 ### 加关键词
 
 「关键词管理」面板里输入逗号分隔的词，点 + 添加。
 
+### 代理（可选）
+
+「代理设置」卡片里填 `http://...` 或 `socks5://...`，保存后定时抓取和实时抓取都会走它；
+留空就用服务器本机 IP 直连。也可以用 `.env` 里的 `ZHISHU_HTTP_PROXY` 设默认值（后台保存的优先）。
+
 ### 看数据
 
 下拉选关键词 + 选时间范围 → 显示走势折线图 + 数据表。
 
-也能点「实时抓取」立即拉一次（绕过定时任务）。
+也能点「实时抓取」立即拉一次（不必等定时任务）。
 
 ---
 
@@ -75,6 +81,12 @@ sudo nano /etc/cron.d/zhishu-daily
 ```
 sudo -u zhishu /opt/zhishu/venv/bin/python /opt/zhishu/scripts/run_daily.py
 ```
+
+### 自动清理
+
+每天任务跑完会顺手滚动清理：历史指数和运行记录只留最近 45 天（`ZHISHU_RETENTION_DAYS` 可改）。
+日志（`api.log` / `cron.log` / `daily.log`）由 logrotate 每天滚动、保留 45 天并压缩归档，不会无限堆积。
+凭证文件（Cookie / Cipher-Text）每次保存都是覆盖写，旧值不留存，也不会写进任何日志。
 
 ---
 
@@ -98,7 +110,7 @@ sudo tail -f /opt/zhishu/logs/api.log
 卸载：
 ```
 sudo systemctl stop zhishu-api && sudo systemctl disable zhishu-api
-sudo rm /etc/systemd/system/zhishu-api.service /etc/cron.d/zhishu-daily
+sudo rm /etc/systemd/system/zhishu-api.service /etc/cron.d/zhishu-daily /etc/logrotate.d/zhishu
 sudo userdel zhishu
 sudo rm -rf /opt/zhishu
 ```
@@ -119,6 +131,8 @@ GET  /api/latest/{keyword}          最新一天
 POST /api/query                     实时抓取
 POST /api/cookie                    更新凭证 {"cookie":"...","cipher_text":"..."}
 GET  /api/credentials/status        凭证状态
+GET  /api/proxy                     查看代理设置
+POST /api/proxy                     设置代理 {"proxy":"http://..."}（留空清除）
 GET  /api/runs                      任务运行记录
 ```
 
@@ -130,7 +144,7 @@ GET  /api/runs                      任务运行记录
 
 不要拿去爬量大、不要拿去倒卖数据、不要拿去做商业用途，那是你自己的事，与作者无关。
 
-代码按原样提供，不保证持续可用（目标站点可能随时调整接口或反爬策略）。MIT 协议。
+代码按原样提供，不保证持续可用（目标站点可能随时调整接口或访问策略）。MIT 协议。
 
 ---
 

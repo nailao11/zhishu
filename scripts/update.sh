@@ -29,6 +29,24 @@ info "更新 Python 依赖..."
 info "修正文件所有权..."
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 
+info "配置日志滚动（logrotate，保留 45 天）..."
+cat > /etc/logrotate.d/zhishu <<EOF
+# 统一管理 api.log / cron.log / daily.log：每天滚动、保留 45 天、压缩归档
+$INSTALL_DIR/logs/*.log {
+    daily
+    rotate 45
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su $SERVICE_USER $SERVICE_USER
+}
+EOF
+chmod 644 /etc/logrotate.d/zhishu
+# 清掉旧版按月命名的日志（现在统一写 daily.log）
+rm -f "$INSTALL_DIR"/logs/daily_*.log 2>/dev/null || true
+
 info "重启服务..."
 systemctl restart zhishu-api.service
 

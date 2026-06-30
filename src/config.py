@@ -1,6 +1,6 @@
 """配置加载
 
-从环境变量和文件中读取配置。Cookie 单独放在 config/cookies.txt 方便更新。
+从环境变量和文件中读取配置。凭证与代理单独放在 config/ 下的文本文件里，方便随时更新。
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 
 COOKIE_FILE = Path(os.environ.get("ZHISHU_COOKIE_FILE", CONFIG_DIR / "cookies.txt"))
 CIPHER_FILE = Path(os.environ.get("ZHISHU_CIPHER_FILE", CONFIG_DIR / "cipher_text.txt"))
+PROXY_FILE = Path(os.environ.get("ZHISHU_PROXY_FILE", CONFIG_DIR / "proxy.txt"))
 DB_PATH = Path(os.environ.get("ZHISHU_DB_PATH", DATA_DIR / "zhishu.db"))
 LOG_DIR = Path(os.environ.get("ZHISHU_LOG_DIR", PROJECT_ROOT / "logs"))
 
@@ -26,8 +27,12 @@ API_PORT = int(os.environ.get("ZHISHU_API_PORT", "8000"))
 # 默认查询天数
 DEFAULT_DAYS = int(os.environ.get("ZHISHU_DEFAULT_DAYS", "30"))
 
-# 可选的 HTTP/SOCKS5 代理（绕开服务器 IP 被百度风控）
+# 历史数据与日志的保留天数；超过的会在每日任务里滚动清理
+RETENTION_DAYS = int(os.environ.get("ZHISHU_RETENTION_DAYS", "45"))
+
+# 可选的默认 HTTP/SOCKS5 代理（让抓取走代理出口）
 # 格式： http://user:pass@host:port  或  socks5://user:pass@host:port
+# 这是环境变量级别的默认值；后台保存的 proxy.txt 优先级更高。
 HTTP_PROXY = os.environ.get("ZHISHU_HTTP_PROXY", "").strip()
 
 
@@ -84,13 +89,12 @@ def load_cookie() -> str:
             f"这通常是因为粘错了示例占位符。请重新从浏览器 DevTools 复制完整 Cookie。"
         )
 
-    # BDUSS 是百度的登录态 token（BDUSS_BFESS 是同义的 BFE 边缘版本）。
-    # 两者都没有 = Cookie 抓取时账号没登录，发出去百度会直接返回"未登录"。
-    # 这里早判定一下，给用户更精确的提示。
+    # BDUSS / BDUSS_BFESS 是登录态字段，两者都没有说明复制 Cookie 时还没登录。
+    # 这里提前判定，给出更精确的提示。
     if "BDUSS=" not in cookie and "BDUSS_BFESS=" not in cookie:
         raise ValueError(
-            "Cookie 里没有 BDUSS / BDUSS_BFESS 字段，说明抓 Cookie 时浏览器还没登录百度账号。"
-            "请先在浏览器里登录 https://index.baidu.com 之后再 F12 复制 Cookie。"
+            "Cookie 里没有 BDUSS / BDUSS_BFESS 字段，说明复制 Cookie 时还没登录账号。"
+            "请先在浏览器里登录目标站点，再从同一请求里复制 Cookie。"
         )
 
     return cookie
@@ -120,49 +124,88 @@ def load_cipher_text() -> str:
 
 
 def save_cipher_text(cipher_text: str) -> None:
-    """保存 Cipher-Text 到文件"""
+    """保存 Cipher-Text 到文件（覆盖写，不留旧值）"""
     CIPHER_FILE.parent.mkdir(parents=True, exist_ok=True)
     CIPHER_FILE.write_text(cipher_text.strip() + "\n", encoding="utf-8")
 
 
-def parse_cipher_text_validity(cipher_text: str) -> dict:
-    """解析 Cipher-Text 的有效期。格式：<ms1>_<ms2>_<encrypted>"""
+def load_proxy() -> str:
+    """读取后台保存的代理地址。文件不存在或为空时返回空字符串。"""
+    if not PROXY_FILE.exists():
+        return ""
+    for line in PROXY_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            return line
+    return ""
+
+
+def save_proxy(proxy: str) -> None:
+    """保存代理地址。传空字符串表示清空（回退到环境变量或直连）。"""
+    PROXY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PROXY_FILE.write_text((proxy or "").strip() + "\n", encoding="utf-8")
+
+
+def effective_proxy() -> str:
+    """实际生效的代理：后台保存的优先，其次环境变量，都没有则直连。"""
+    return load_proxy() or HTTP_PROXY
+
+
+# Cipher-Text 视为「新鲜」的时长（小时）。它本身不含过期时间，实际有效性由
+# 服务端按约每天轮换判定；超过这个时长就提示重新复制一次。
+CIPHER_FRESH_HOURS = int(os.environ.get("ZHISHU_CIPHER_FRESH_HOURS", "24"))
+
+
+def parse_cipher_text_info(cipher_text: str) -> dict:
+    """解析 Cipher-Text 的生成时间。
+
+    格式为 ``<ms1>_<ms2>_<密文>``：两段数字都是生成时刻的时间戳（毫秒），
+    其中较大的一段是这条签名被生成/复制的时间。字符串里**没有过期时间**——
+    令牌的有效性由服务端判定、约每天轮换一次。所以这里只能给出「生成于何时、
+    已经用了多久」，据此提示是否该刷新，而不是伪造一个过期倒计时。
+    """
     import time as _time
+
     if not cipher_text or "_" not in cipher_text:
-        return {"valid": False, "reason": "格式不对"}
+        return {"format_ok": False, "reason": "格式不对，应为 数字_数字_编码"}
     parts = cipher_text.split("_", 2)
     if len(parts) < 3:
-        return {"valid": False, "reason": "格式不对（应该是 ts1_ts2_data）"}
+        return {"format_ok": False, "reason": "格式不对，应为 数字_数字_编码"}
     try:
         ts1 = int(parts[0])
         ts2 = int(parts[1])
     except ValueError:
-        return {"valid": False, "reason": "时间戳不是数字"}
+        return {"format_ok": False, "reason": "开头两段不是数字时间戳"}
 
+    generated_ms = max(ts1, ts2)
     now_ms = int(_time.time() * 1000)
-    # 取两个时间戳里较大的一个作为过期时间
-    expire_ms = max(ts1, ts2)
-    issue_ms = min(ts1, ts2)
-    remaining_sec = (expire_ms - now_ms) / 1000
+    age_sec = max(0, int((now_ms - generated_ms) / 1000))
+
+    import datetime as _dt
+    generated_human = _dt.datetime.fromtimestamp(generated_ms / 1000).strftime("%Y-%m-%d %H:%M:%S")
+
     return {
-        "valid": remaining_sec > 0,
-        "issued_at": issue_ms,
-        "expires_at": expire_ms,
-        "remaining_seconds": int(remaining_sec),
-        "remaining_human": _human_duration(int(remaining_sec)),
+        "format_ok": True,
+        "generated_at": generated_ms,
+        "generated_at_human": generated_human,
+        "age_seconds": age_sec,
+        "age_human": _human_duration(age_sec),
+        "stale": age_sec > CIPHER_FRESH_HOURS * 3600,
     }
 
 
 def _human_duration(seconds: int) -> str:
-    if seconds <= 0:
-        return "已过期"
     if seconds < 60:
-        return f"{seconds} 秒"
+        return "刚刚"
     if seconds < 3600:
         return f"{seconds // 60} 分钟"
-    h = seconds // 3600
-    m = (seconds % 3600) // 60
-    return f"{h} 小时 {m} 分钟" if m else f"{h} 小时"
+    if seconds < 86400:
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        return f"{h} 小时 {m} 分钟" if m else f"{h} 小时"
+    d = seconds // 86400
+    h = (seconds % 86400) // 3600
+    return f"{d} 天 {h} 小时" if h else f"{d} 天"
 
 
 def ensure_dirs() -> None:

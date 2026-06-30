@@ -1,6 +1,6 @@
 """HTTP API 服务
 
-提供 REST 接口供外部程序查询百度指数数据、管理关键词、更新 Cookie。
+提供 REST 接口供外部程序查询指数数据、管理关键词、更新凭证与代理。
 """
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 app = FastAPI(
-    title="百度指数查询服务",
-    description="基于 curl_cffi 的轻量级百度指数 API。中文管理后台请访问 /admin。",
+    title="指数查询服务",
+    description="基于 curl_cffi 的轻量级指数 API。中文管理后台请访问 /admin。",
     version="0.1.0",
 )
 
@@ -40,7 +40,7 @@ def get_crawler() -> BaiduIndexCrawler:
     cipher = config.load_cipher_text()
     return BaiduIndexCrawler(
         cookie=cookie,
-        proxy=config.HTTP_PROXY or None,
+        proxy=config.effective_proxy() or None,
         cipher_text=cipher or None,
     )
 
@@ -75,14 +75,18 @@ class KeywordsRequest(BaseModel):
 
 class CookieRequest(BaseModel):
     cookie: str = Field(..., description="完整的 Cookie 字符串")
-    cipher_text: Optional[str] = Field(None, description="Cipher-Text 签名头（强烈建议一起提交）")
+    cipher_text: Optional[str] = Field(None, description="Cipher-Text 签名头（建议一起提交）")
+
+
+class ProxyRequest(BaseModel):
+    proxy: str = Field("", description="代理地址，留空表示清空（回退到环境变量或直连）")
 
 
 class DiagnoseRequest(BaseModel):
-    proxy: Optional[str] = Field(None, description="可选代理URL")
+    proxy: Optional[str] = Field(None, description="可选代理 URL；不传则用当前生效的代理")
     cookie: Optional[str] = Field(None, description="可选 Cookie 字符串；不传则只测 IP")
-    cipher_text: Optional[str] = Field(None, description="可选 Cipher-Text 头（百度反爬必需，从浏览器复制）")
-    warmup: bool = Field(True, description="是否先访问主页 warmup")
+    cipher_text: Optional[str] = Field(None, description="可选 Cipher-Text 头，从同一请求复制")
+    warmup: bool = Field(True, description="是否先访问主页预热")
     timeout: int = Field(90, description="超时秒数")
 
 
@@ -126,19 +130,19 @@ def _do_diagnose(
     timeout: int,
     cipher_text: Optional[str] = None,
 ) -> dict:
-    """实际执行诊断的核心逻辑，给 GET 和 POST 两个端点共用。"""
+    """实际执行诊断：用爬虫核心实发一次请求，定位卡在哪一步。"""
     import time as _time
     from curl_cffi import requests as cffi_requests
     from .crawler import BAIDU_INDEX_URL, BAIDU_HOME_URL, DEFAULT_HEADERS, HOME_HEADERS
 
-    effective_proxy = (proxy or config.HTTP_PROXY or "").strip() or None
+    eff_proxy = (proxy or config.effective_proxy() or "").strip() or None
     cookie_str = (cookie or "").strip()
     use_cookie = bool(cookie_str)
     cipher_str = (cipher_text or "").strip()
 
     result = {
         "tested_at": datetime.now().isoformat(timespec="seconds"),
-        "proxy": effective_proxy or "（直连，未走代理）",
+        "proxy": eff_proxy or "（直连，未走代理）",
         "timeout_seconds": timeout,
         "use_cookie": use_cookie,
         "cookie_length": len(cookie_str) if use_cookie else 0,
@@ -150,30 +154,27 @@ def _do_diagnose(
     if use_cookie:
         if len(cookie_str) < 50:
             result["verdict"] = (
-                f"❌ Cookie 太短了（仅 {len(cookie_str)} 字符），看起来是占位符。"
-                "请从浏览器 DevTools 复制完整 Cookie 整行（包含 BDUSS 字段）。"
+                f"❌ Cookie 仅 {len(cookie_str)} 字符，看起来不完整。"
+                "请从同一请求里复制完整 Cookie 整行（含 BDUSS 字段）。"
             )
             return result
         try:
             cookie_str.encode("ascii")
         except UnicodeEncodeError:
-            result["verdict"] = (
-                "❌ Cookie 含有非 ASCII 字符（中文等），HTTP 头不允许。"
-                "你贴的可能不是真实 Cookie，请重新去浏览器复制。"
-            )
+            result["verdict"] = "❌ Cookie 含非 ASCII 字符，HTTP 头不允许，请重新复制。"
             return result
         if "BDUSS=" not in cookie_str and "BDUSS_BFESS=" not in cookie_str:
             result["verdict"] = (
-                "❌ Cookie 里没有 BDUSS / BDUSS_BFESS——说明抓 Cookie 时浏览器还没登录百度。"
-                "请先登录 https://index.baidu.com 之后再 F12 复制 Cookie。"
+                "❌ Cookie 里没有 BDUSS / BDUSS_BFESS，说明复制时还没登录。"
+                "请先登录目标站点再复制 Cookie。"
             )
             return result
 
     start = _time.time()
     try:
         session = cffi_requests.Session(impersonate="chrome120")
-        if effective_proxy:
-            session.proxies = {"http": effective_proxy, "https": effective_proxy}
+        if eff_proxy:
+            session.proxies = {"http": eff_proxy, "https": eff_proxy}
             session.verify = False
 
         if warmup:
@@ -208,65 +209,43 @@ def _do_diagnose(
             data = resp.json()
             status = data.get("status")
             message = data.get("message", "")
-            result["baidu_status"] = status
-            result["baidu_message"] = message
+            result["api_status"] = status
+            result["api_message"] = message
+            via = "代理" if eff_proxy else "本机直连"
             if status == 0:
-                result["verdict"] = "🎉 成功拿到数据了！项目可以正式跑通"
+                result["verdict"] = "🎉 成功拿到数据，链路完全跑通。"
                 result["data_preview"] = str(data.get("data", {}))[:300]
             elif status == 10000:
                 if use_cookie:
-                    result["verdict"] = "⚠️ IP 通过但 Cookie 无效。请重新从浏览器复制完整 Cookie 后再试。"
+                    result["verdict"] = "⚠️ 链路通，但 Cookie 无效或已过期，请重新复制 Cookie。"
                 else:
-                    via = "代理" if effective_proxy else "服务器直连"
-                    result["verdict"] = f"✅ {via}的 IP 没被风控。再带上 Cookie 测一次完整流程。"
+                    result["verdict"] = f"✅ {via}的 IP 可用。再带上 Cookie 测一次完整流程。"
             elif status == 10018:
-                via = "代理" if effective_proxy else "服务器"
                 if use_cookie:
-                    result["verdict"] = f"❌ 即使带 Cookie 也被 10018 风控。{via}的 IP 被深度拉黑了。"
+                    result["verdict"] = f"❌ 带 Cookie 仍被拦截（10018），{via}的出口 IP 不可用。"
                 else:
-                    result["verdict"] = f"❌ {via}的 IP 没 Cookie 时被 10018 风控。建议再带 Cookie 测一次——有时候带 Cookie 反而能过。"
+                    result["verdict"] = f"❌ {via}不带 Cookie 时被拦截（10018），建议带上 Cookie 再测一次。"
             else:
-                result["verdict"] = f"⚠️ 未预期的状态码 {status}，百度可能改了接口"
+                result["verdict"] = f"⚠️ 未预期的状态码 {status}，接口可能有调整。"
         except Exception:
-            result["baidu_status"] = None
+            result["api_status"] = None
             result["body_preview"] = resp.text[:500]
-            result["verdict"] = "⚠️ 响应不是合法 JSON，可能被中间设备拦截了"
+            result["verdict"] = "⚠️ 响应不是合法 JSON，可能被中间环节拦截。"
     except Exception as e:
         result["elapsed_seconds"] = round(_time.time() - start, 2)
         result["error_type"] = type(e).__name__
         result["error"] = str(e)[:300]
         if "timeout" in str(e).lower() or "timed out" in str(e).lower():
-            result["verdict"] = f"❌ 超时（{result['elapsed_seconds']}秒）。代理太慢或百度没回应，试更大 timeout 或换代理。"
+            result["verdict"] = f"❌ 超时（{result['elapsed_seconds']} 秒）。代理太慢或对端没响应，可加大 timeout 或更换代理。"
         else:
-            result["verdict"] = f"❌ 网络层报错：{type(e).__name__}。代理地址错误、代理服务挂了、或者 TLS 握手失败。"
+            result["verdict"] = f"❌ 网络层报错：{type(e).__name__}。可能是代理地址错误、代理不可用或 TLS 握手失败。"
 
     return result
 
 
-@app.get("/api/diagnose", dependencies=[Depends(verify_token)])
-async def diagnose_get(
-    proxy: Optional[str] = Query(None),
-    cookie: Optional[str] = Query(None),
-    warmup: bool = Query(True),
-    timeout: int = Query(90),
-    use_cookie: bool = Query(False, description="兼容旧版：true 时读取已保存的 Cookie"),
-):
-    """GET 版（兼容旧调用方）。带长 Cookie 时建议改用 POST。"""
-    effective_cookie = cookie
-    if use_cookie and not cookie:
-        try:
-            effective_cookie = config.load_cookie()
-        except Exception as e:
-            return {
-                "verdict": f"❌ 启用了 use_cookie 但读取文件失败: {e}",
-                "tested_at": datetime.now().isoformat(timespec="seconds"),
-            }
-    return _do_diagnose(proxy, effective_cookie, warmup, timeout)
-
-
 @app.post("/api/diagnose", dependencies=[Depends(verify_token)])
-async def diagnose_post(req: DiagnoseRequest):
-    """POST 版，推荐使用——Cookie 在 body 里不受 URL 长度限制。"""
+async def diagnose(req: DiagnoseRequest):
+    """网络诊断：实发一次请求，定位卡在哪一步。"""
     return _do_diagnose(req.proxy, req.cookie, req.warmup, req.timeout, req.cipher_text)
 
 
@@ -354,36 +333,32 @@ async def update_cookie(req: CookieRequest):
     if len(cookie) < 50:
         raise HTTPException(
             status_code=400,
-            detail=f"Cookie 长度仅 {len(cookie)} 字符，看起来是占位符或不完整。"
-                   "请从浏览器 DevTools 复制完整 Cookie 整行（包含 BDUSS 字段）。",
+            detail=f"Cookie 仅 {len(cookie)} 字符，看起来不完整。"
+                   "请从同一请求里复制完整 Cookie 整行（含 BDUSS 字段）。",
         )
     try:
         cookie.encode("ascii")
     except UnicodeEncodeError:
         raise HTTPException(
             status_code=400,
-            detail="Cookie 含非 ASCII 字符，HTTP 头不接受（多半粘到了示例文本里的中文括号）。",
+            detail="Cookie 含非 ASCII 字符，HTTP 头不接受（多半粘进了示例里的中文标点）。",
         )
     if "BDUSS=" not in cookie and "BDUSS_BFESS=" not in cookie:
         raise HTTPException(
             status_code=400,
-            detail="Cookie 里没有 BDUSS / BDUSS_BFESS 字段——说明抓 Cookie 时浏览器还没登录百度。"
-                   "请先登录 https://index.baidu.com 之后再 F12 复制 Cookie。",
+            detail="Cookie 里没有 BDUSS / BDUSS_BFESS 字段，说明复制时还没登录。"
+                   "请先登录目标站点再复制 Cookie。",
         )
-    try:
-        cookie.encode("ascii")
-    except UnicodeEncodeError:
-        raise HTTPException(status_code=400, detail="Cookie 含非 ASCII 字符（中文等），请重新复制")
 
     try:
         test = BaiduIndexCrawler(
             cookie=cookie,
-            proxy=config.HTTP_PROXY or None,
+            proxy=config.effective_proxy() or None,
             cipher_text=cipher or None,
         )
         test.fetch_keywords(["苹果"], days=7)
     except CookieExpiredError:
-        raise HTTPException(status_code=400, detail="凭证验证失败，可能 Cookie 或 Cipher-Text 过期，请重新获取")
+        raise HTTPException(status_code=400, detail="凭证验证失败，Cookie 或 Cipher-Text 可能已失效，请重新获取")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"凭证验证失败: {e}")
 
@@ -401,7 +376,7 @@ async def update_cookie(req: CookieRequest):
 
 @app.get("/api/credentials/status", dependencies=[Depends(verify_token)])
 async def credentials_status():
-    """查看当前凭证状态。让前端能展示有效期、提醒该刷新了。"""
+    """查看当前凭证状态：Cookie 是否配置、Cipher-Text 生成于何时/已用多久。"""
     cookie_exists = config.COOKIE_FILE.exists()
     cookie_len = 0
     cookie_ok = False
@@ -414,8 +389,8 @@ async def credentials_status():
             cookie_ok = False
 
     cipher = config.load_cipher_text()
-    validity = config.parse_cipher_text_validity(cipher) if cipher else {
-        "valid": False, "reason": "未配置 Cipher-Text",
+    info = config.parse_cipher_text_info(cipher) if cipher else {
+        "format_ok": False, "reason": "未配置 Cipher-Text",
     }
 
     return {
@@ -427,9 +402,33 @@ async def credentials_status():
         "cipher_text": {
             "configured": bool(cipher),
             "length": len(cipher),
-            "validity": validity,
+            "info": info,
         },
     }
+
+
+@app.get("/api/proxy", dependencies=[Depends(verify_token)])
+async def get_proxy():
+    """查看代理设置：后台保存的值，以及当前实际生效的代理。"""
+    saved = config.load_proxy()
+    effective = config.effective_proxy()
+    source = "saved" if saved else ("env" if config.HTTP_PROXY else "none")
+    return {"saved": saved, "effective": effective, "source": source}
+
+
+@app.post("/api/proxy", dependencies=[Depends(verify_token)])
+async def update_proxy(req: ProxyRequest):
+    """保存代理地址。留空表示清空（回退到环境变量或直连）。"""
+    proxy = (req.proxy or "").strip()
+    if proxy:
+        low = proxy.lower()
+        if not (low.startswith("http://") or low.startswith("https://") or low.startswith("socks5://")):
+            raise HTTPException(
+                status_code=400,
+                detail="代理格式不对，应以 http:// / https:// / socks5:// 开头",
+            )
+    config.save_proxy(proxy)
+    return {"status": "ok", "saved": proxy, "effective": config.effective_proxy()}
 
 
 @app.get("/api/runs", dependencies=[Depends(verify_token)])
