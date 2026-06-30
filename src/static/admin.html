@@ -732,6 +732,13 @@ function renderDiagnoseResult(r) {
     };
     row('测试时间', r.tested_at);
     row('代理', escapeHtml(r.proxy || '直连'));
+    if (r.egress_ip) {
+        const geo = r.egress_geo ? ' · ' + escapeHtml(r.egress_geo) : '';
+        const isp = r.egress_isp ? ' / ' + escapeHtml(r.egress_isp) : '';
+        row('实际出口 IP', `<b>${escapeHtml(r.egress_ip)}</b>${geo}${isp}`, '#16a085');
+    } else if (r.egress_error) {
+        row('实际出口 IP', '<span style="color:#888;">获取失败（不影响下面的接口测试）</span>');
+    }
     row('Warmup', r.warmup ? `是 (HTTP ${r.warmup_status || '?'})` + (r.warmup_error ? ` <span style="color:#dc3545;">${escapeHtml(r.warmup_error)}</span>` : '') : '否');
     row('带 Cookie', r.use_cookie ? `是 (${r.cookie_length} 字符)` : '否（仅测 IP）');
     row('带 Cipher-Text', r.use_cipher_text ? `是 (${r.cipher_text_length} 字符) 🔑` : '否');

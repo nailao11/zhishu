@@ -181,6 +181,22 @@ def _do_diagnose(
             session.proxies = {"http": eff_proxy, "https": eff_proxy}
             session.verify = False
 
+        # 探测实际出口 IP：这次请求到底从哪个 IP 出去——用代理就是代理的 IP，
+        # 没用代理就是服务器本机 IP，一眼就能判断走没走代理。
+        try:
+            ip_resp = session.get(
+                "http://ip-api.com/json/?fields=query,country,regionName,isp",
+                timeout=min(timeout, 12),
+            )
+            ipj = ip_resp.json()
+            result["egress_ip"] = ipj.get("query")
+            result["egress_geo"] = " ".join(
+                x for x in [ipj.get("country"), ipj.get("regionName")] if x
+            )
+            result["egress_isp"] = ipj.get("isp")
+        except Exception as e:
+            result["egress_error"] = str(e)[:150]
+
         if warmup:
             try:
                 home_headers = {**HOME_HEADERS}
