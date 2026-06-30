@@ -285,10 +285,10 @@ class BaiduIndexCrawler:
         days: int = 30,
         sleep_between: tuple[float, float] = (0.8, 1.5),
     ) -> list[KeywordResult]:
-        """查询关键词的百度指数。
+        """查询关键词的指数。
 
-        :param keywords: 关键词列表，单次最多 5 个（百度限制）
-        :param area: 地区代码，0=全国，其他参考百度地区代码表
+        :param keywords: 关键词列表，单次最多 5 个（接口限制）
+        :param area: 地区代码，0=全国，其他参考地区代码表
         :param days: 查询最近 N 天的数据，常用值 7/30/90/180/365
         :param sleep_between: 两次请求之间的随机睡眠区间（秒）
         :return: 每个关键词的查询结果
@@ -299,7 +299,6 @@ class BaiduIndexCrawler:
         raw = self._fetch_raw(keywords, area, days)
         uniqid = raw["data"]["uniqid"]
 
-        # 适当延迟，模拟人类操作
         time.sleep(random.uniform(*sleep_between))
         ptbk = self._fetch_ptbk(uniqid)
 
@@ -378,7 +377,6 @@ class BaiduIndexCrawler:
                 logger.error("批次 %s 查询失败: %s", batch, e)
                 outcome.failures.append({"keywords": list(batch), "error": str(e)})
 
-            # 批次之间随机睡眠
             if i + batch_size < len(keywords):
                 time.sleep(random.uniform(*sleep_between_batch))
 

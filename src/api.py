@@ -83,7 +83,7 @@ class ProxyRequest(BaseModel):
 
 
 class DiagnoseRequest(BaseModel):
-    proxy: Optional[str] = Field(None, description="可选代理 URL；不传则用当前生效的代理")
+    proxy: Optional[str] = Field(None, description="可选代理 URL；留空 = 直连测试")
     cookie: Optional[str] = Field(None, description="可选 Cookie 字符串；不传则只测 IP")
     cipher_text: Optional[str] = Field(None, description="可选 Cipher-Text 头，从同一请求复制")
     warmup: bool = Field(True, description="是否先访问主页预热")

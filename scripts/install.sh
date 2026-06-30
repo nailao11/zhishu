@@ -27,7 +27,6 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-# -------- 1. 安装系统依赖 --------
 info "Step 1/8: 安装系统依赖"
 apt-get update -qq
 apt-get install -y --no-install-recommends \
@@ -35,7 +34,6 @@ apt-get install -y --no-install-recommends \
     git curl ca-certificates \
     build-essential libffi-dev libssl-dev
 
-# -------- 2. 创建运行用户 --------
 info "Step 2/8: 创建运行用户 ${SERVICE_USER}"
 if ! id "$SERVICE_USER" &>/dev/null; then
     useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER"
@@ -43,7 +41,6 @@ else
     info "用户 ${SERVICE_USER} 已存在，跳过"
 fi
 
-# -------- 3. 克隆或更新代码 --------
 info "Step 3/8: 部署代码到 ${INSTALL_DIR}"
 if [ -d "$INSTALL_DIR/.git" ]; then
     info "已存在仓库，执行 pull"
@@ -54,7 +51,6 @@ else
     git clone --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR"
 fi
 
-# -------- 4. 创建 Python 虚拟环境并安装依赖 --------
 info "Step 4/8: 创建 Python 虚拟环境"
 if [ ! -d "$INSTALL_DIR/venv" ]; then
     python3 -m venv "$INSTALL_DIR/venv"
@@ -62,7 +58,6 @@ fi
 "$INSTALL_DIR/venv/bin/pip" install --upgrade pip wheel
 "$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt"
 
-# -------- 5. 准备数据目录和配置 --------
 info "Step 5/8: 准备目录和配置"
 mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/logs" "$INSTALL_DIR/config"
 
@@ -87,14 +82,12 @@ warn "凭证文件还没配置，去 /admin 网页一次性粘贴 Cookie + Ciphe
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 chmod 600 "$INSTALL_DIR/.env" "$INSTALL_DIR/config/cookies.txt" "$INSTALL_DIR/config/cipher_text.txt" 2>/dev/null || true
 
-# -------- 6. 安装 systemd 服务 --------
 info "Step 6/8: 安装 systemd 服务"
 cp "$INSTALL_DIR/systemd/zhishu-api.service" /etc/systemd/system/zhishu-api.service
 systemctl daemon-reload
 systemctl enable zhishu-api.service
 systemctl restart zhishu-api.service
 
-# -------- 7. 安装 cron 定时任务 --------
 info "Step 7/8: 安装 cron 定时任务（每天 03:00 抓取）"
 CRON_FILE=/etc/cron.d/zhishu-daily
 cat > "$CRON_FILE" <<EOF
@@ -105,7 +98,6 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EOF
 chmod 644 "$CRON_FILE"
 
-# -------- 8. 配置日志滚动 --------
 info "Step 8/8: 配置日志滚动（logrotate，保留 45 天）"
 LOGROTATE_FILE=/etc/logrotate.d/zhishu
 cat > "$LOGROTATE_FILE" <<EOF
