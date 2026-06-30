@@ -57,6 +57,8 @@ body {
 }
 .card h2 .icon { font-size: 20px; }
 .help { font-size: 13px; color: #888; margin-bottom: 12px; line-height: 1.5; }
+/* 代理等可能是无空格长串（URL），强制换行，避免撑破卡片 */
+#proxyStatus, #proxySaveStatus, #cookieStatus { overflow-wrap: anywhere; }
 
 input, textarea, button, select {
     font-family: inherit;
@@ -199,6 +201,7 @@ tbody tr:hover { background: #f8f9fa; }
     #runsList th, #runsList td:not(:last-child) { white-space: nowrap; }
     .modal-content { padding: 20px 16px; max-height: 92vh; }
     .modal-actions { flex-wrap: wrap; }
+    .toast { max-width: calc(100vw - 48px); }
 }
 </style>
 </head>
