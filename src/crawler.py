@@ -1,7 +1,6 @@
-"""百度指数爬虫核心
+"""指数爬虫核心
 
-使用 curl_cffi 模拟真实 Chrome 浏览器的 TLS 指纹，
-绕过百度的指纹反爬检测。
+使用 curl_cffi 以 Chrome 的 TLS 指纹发起请求，配合完整的浏览器请求头。
 """
 from __future__ import annotations
 
@@ -63,11 +62,11 @@ class CookieExpiredError(Exception):
 
 
 class RateLimitError(Exception):
-    """触发百度限流"""
+    """请求过于频繁，被限流"""
 
 
 class BaiduIndexError(Exception):
-    """百度指数 API 通用错误"""
+    """接口通用错误"""
 
 
 @dataclass
@@ -104,8 +103,35 @@ class KeywordResult:
         return points
 
 
+@dataclass
+class BatchOutcome:
+    """批量抓取的结果：成功的数据 + 失败的批次明细。
+
+    failures 里每一项是 ``{"keywords": [...], "error": "原因"}``，方便把
+    「哪些关键词、为什么失败」如实记录进运行日志，而不是默默吞掉。
+    """
+    results: list[KeywordResult] = field(default_factory=list)
+    failures: list[dict] = field(default_factory=list)
+
+    @property
+    def success_count(self) -> int:
+        return len(self.results)
+
+    @property
+    def fail_count(self) -> int:
+        return sum(len(f["keywords"]) for f in self.failures)
+
+    def error_summary(self) -> str | None:
+        """把失败明细汇成一行，写进 run_log.error。全部成功时返回 None。"""
+        if not self.failures:
+            return None
+        return "；".join(
+            f"{'、'.join(f['keywords'])}: {f['error']}" for f in self.failures
+        )
+
+
 class BaiduIndexCrawler:
-    """百度指数爬虫，单 Cookie 模式。
+    """指数爬虫，单 Cookie 模式。
 
     使用方式：
         crawler = BaiduIndexCrawler(cookie="your_cookie_string")
@@ -128,19 +154,18 @@ class BaiduIndexCrawler:
         self.session = requests.Session(impersonate=impersonate)
         if self.proxy:
             self.session.proxies = {"http": self.proxy, "https": self.proxy}
-        # 住宅代理（如 Bright Data）通常 MITM 解密 HTTPS，证书校验必须关
-        # 用户没显式指定时：用代理自动关 SSL 校验，直连保持开启
+        # 部分代理会中间解密 HTTPS，证书校验需要关闭；未显式指定时：
+        # 走代理默认关闭校验，直连默认开启。
         if verify_ssl is None:
             verify_ssl = self.proxy is None
         self.session.verify = verify_ssl
         self._warmed_up = False
 
     def _warmup(self) -> None:
-        """先 GET 一下主页，模拟真实浏览器的访问流程。
+        """先 GET 一次主页，再调 API，模拟浏览器的正常访问顺序。
 
-        百度反爬会检测"突然空降 API"的请求——真实浏览器是先打开页面、
-        再 XHR 调 API。warmup 让我们看起来更自然，session 也能收到主页
-        设置的 cookies（部分 anti-spam token 是这里下发的）。
+        浏览器通常是先打开页面、再由 XHR 调接口；先访问主页也能让 session
+        收到主页下发的 cookies。
         """
         if self._warmed_up:
             return
@@ -160,7 +185,7 @@ class BaiduIndexCrawler:
 
     @staticmethod
     def _decrypt(key: str, data: str) -> str:
-        """百度指数的解密算法：基于 ptbk 的字符替换。
+        """指数数据的解密：基于 ptbk 的字符替换。
 
         ptbk 长度为偶数，前一半是密文字符表，后一半是对应的明文字符。
         """
@@ -216,7 +241,7 @@ class BaiduIndexCrawler:
             timeout=30,
         )
         if resp.status_code == 429:
-            raise RateLimitError("触发百度限流（HTTP 429）")
+            raise RateLimitError("请求过于频繁，被限流（HTTP 429）")
         if resp.status_code != 200:
             raise BaiduIndexError(f"HTTP {resp.status_code}: {resp.text[:200]}")
 
@@ -226,15 +251,15 @@ class BaiduIndexCrawler:
             raise BaiduIndexError(f"响应不是合法 JSON: {e}; body={resp.text[:200]}")
 
         status = data.get("status")
-        # 百度有时候返回 message=0 (int) 而不是字符串，统一转成字符串再判断
+        # 接口有时返回 message=0 (int) 而不是字符串，统一转成字符串再判断
         raw_message = data.get("message", "")
         message = str(raw_message) if raw_message is not None else ""
         if status == 10000 or "未登录" in message or "not login" in message.lower():
-            raise CookieExpiredError("Cookie 已失效，请重新获取并更新")
+            raise CookieExpiredError("凭证已失效，请重新获取 Cookie 与 Cipher-Text")
         if status == 10001:
             raise RateLimitError(f"请求过于频繁: {message}")
         if status != 0:
-            raise BaiduIndexError(f"百度API错误 status={status}: {message}")
+            raise BaiduIndexError(f"接口返回错误 status={status}: {message}")
 
         return data
 
@@ -250,7 +275,7 @@ class BaiduIndexCrawler:
         data = resp.json()
         ptbk = data.get("data", "")
         if not ptbk:
-            raise BaiduIndexError(f"ptbk 为空，可能Cookie失效: {data}")
+            raise BaiduIndexError("ptbk 为空，凭证可能已失效")
         return ptbk
 
     def fetch_keywords(
@@ -320,33 +345,41 @@ class BaiduIndexCrawler:
         days: int = 30,
         batch_size: int = 5,
         sleep_between_batch: tuple[float, float] = (2.0, 4.0),
-    ) -> list[KeywordResult]:
+    ) -> BatchOutcome:
         """批量查询，自动按 batch_size 切分并加延迟。
 
-        适合定时任务一次跑几十上百个关键词。
+        适合定时任务一次跑几十上百个关键词。返回 :class:`BatchOutcome`，
+        其中既有成功的数据，也有每个失败批次的关键词和原因。
+
+        凭证整体失效（CookieExpiredError）属于致命错误，直接抛出由上层处理；
+        单个批次的其他异常只记进 failures，不影响其余批次。
         """
-        all_results: list[KeywordResult] = []
+        outcome = BatchOutcome()
+        total_batches = (len(keywords) + batch_size - 1) // batch_size
         for i in range(0, len(keywords), batch_size):
             batch = keywords[i : i + batch_size]
             try:
-                results = self.fetch_keywords(batch, area=area, days=days)
-                all_results.extend(results)
-                logger.info("批次 %d/%d 完成: %s", i // batch_size + 1, (len(keywords) + batch_size - 1) // batch_size, batch)
+                outcome.results.extend(self.fetch_keywords(batch, area=area, days=days))
+                logger.info("批次 %d/%d 完成: %s", i // batch_size + 1, total_batches, batch)
             except CookieExpiredError:
                 raise
             except RateLimitError as e:
-                logger.error("触发限流，等待 60 秒后重试一次: %s", e)
+                logger.warning("批次 %s 被限流，等待 60 秒后重试一次: %s", batch, e)
                 time.sleep(60)
                 try:
-                    results = self.fetch_keywords(batch, area=area, days=days)
-                    all_results.extend(results)
+                    outcome.results.extend(self.fetch_keywords(batch, area=area, days=days))
+                    logger.info("批次 %d/%d 重试成功: %s", i // batch_size + 1, total_batches, batch)
+                except CookieExpiredError:
+                    raise
                 except Exception as e2:
-                    logger.error("重试仍失败，跳过批次 %s: %s", batch, e2)
+                    logger.error("批次 %s 重试仍失败: %s", batch, e2)
+                    outcome.failures.append({"keywords": list(batch), "error": str(e2)})
             except Exception as e:
-                logger.error("查询批次 %s 失败: %s", batch, e)
+                logger.error("批次 %s 查询失败: %s", batch, e)
+                outcome.failures.append({"keywords": list(batch), "error": str(e)})
 
             # 批次之间随机睡眠
             if i + batch_size < len(keywords):
                 time.sleep(random.uniform(*sleep_between_batch))
 
-        return all_results
+        return outcome

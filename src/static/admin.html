@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>百度指数管理后台</title>
+<title>指数管理后台</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -43,6 +43,7 @@ body {
     border-radius: 12px;
     padding: 22px 24px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+    min-width: 0; /* 允许 grid/flex 项收缩，让内部宽表格能横向滚动而不是撑破布局 */
 }
 .card h2 {
     font-size: 17px;
@@ -74,7 +75,7 @@ input:focus, textarea:focus, select:focus {
     border-color: #667eea;
     box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
 }
-textarea { resize: vertical; min-height: 80px; font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; }
+textarea { resize: none; min-height: 80px; font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; }
 
 button {
     padding: 9px 18px;
@@ -110,6 +111,7 @@ tbody tr:hover { background: #f8f9fa; }
     padding: 2px 10px;
     border-radius: 12px;
     font-size: 12px;
+    white-space: nowrap;
 }
 .status.success { background: #d4edda; color: #155724; }
 .status.failed { background: #f8d7da; color: #721c24; }
@@ -184,15 +186,26 @@ tbody tr:hover { background: #f8f9fa; }
 @media (max-width: 768px) {
     .grid { grid-template-columns: 1fr; }
     .header { padding: 14px 16px; flex-direction: column; gap: 10px; align-items: flex-start; }
+    .header h1 { font-size: 18px; }
     .container { padding: 0 12px; margin: 16px auto; }
-    .form-row { flex-wrap: wrap; }
+    .card { padding: 18px 16px; }
+    /* 表单控件在窄屏纵向铺满，避免下拉框被挤成看不见的小方块 */
+    .form-row { flex-direction: column; align-items: stretch; gap: 8px; }
+    .form-row > * { width: 100%; flex: none; }
+    /* 宽表格横向滚动，不再把列挤变形 */
+    #keywordsList, #runsList, #queryResult { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    /* 运行记录列多，给个最小宽度让它整体横向滚动，而不是把错误信息挤成竖排 */
+    #runsList table { min-width: 640px; }
+    #runsList th, #runsList td:not(:last-child) { white-space: nowrap; }
+    .modal-content { padding: 20px 16px; max-height: 92vh; }
+    .modal-actions { flex-wrap: wrap; }
 }
 </style>
 </head>
 <body>
 
 <div class="header">
-    <h1>📊 百度指数管理后台</h1>
+    <h1>📊 指数管理后台</h1>
     <div style="display:flex;gap:10px;align-items:center;">
         <div class="token-status" style="background:rgba(255,255,255,0.25);" onclick="runDiagnose()">🔍 诊断网络</div>
         <div class="token-status" id="tokenStatus" onclick="showTokenModal()">未登录</div>
@@ -204,15 +217,15 @@ tbody tr:hover { background: #f8f9fa; }
         <div class="card">
             <h2><span class="icon">🔐</span> 凭证管理（Cookie + Cipher-Text）</h2>
             <div class="help">
-                两个都要！打开浏览器登录目标站点，F12 → Network → 找一个 API 请求，在 Request Headers 里**同时复制 Cookie 和 Cipher-Text**。两者过期后一起重新复制即可。
+                登录目标站点后，F12 → Network → 任选一个接口请求，在 Request Headers 里同时复制 Cookie 和 Cipher-Text 两个值，粘到下面保存。需要刷新时一起重新复制即可。
             </div>
             <div id="credStatus" style="margin-bottom: 12px; font-size: 13px;"></div>
 
             <label style="display: block; font-weight: 500; margin-bottom: 4px; font-size: 13px;">Cookie</label>
-            <textarea id="cookieInput" placeholder="完整 Cookie 字符串（一般 1000-2500 字符）" style="min-height: 70px; font-size: 11px;"></textarea>
+            <textarea id="cookieInput" placeholder="完整 Cookie 整行" style="min-height: 70px; font-size: 11px;"></textarea>
 
             <label style="display: block; font-weight: 500; margin: 10px 0 4px; font-size: 13px;">Cipher-Text 🔑</label>
-            <textarea id="cipherInput" placeholder="完整 Cipher-Text 字符串（格式：数字_数字_一长串编码，约 400-500 字符）" style="min-height: 70px; font-size: 11px;"></textarea>
+            <textarea id="cipherInput" placeholder="完整 Cipher-Text 整行（格式：数字_数字_编码）" style="min-height: 70px; font-size: 11px;"></textarea>
 
             <div class="form-row">
                 <button onclick="updateCookie()">验证并保存凭证</button>
@@ -221,12 +234,23 @@ tbody tr:hover { background: #f8f9fa; }
         </div>
 
         <div class="card">
-            <h2><span class="icon">🔑</span> 第二步：管理关键词</h2>
-            <div class="help">每天凌晨 03:00 自动抓取下面列表里所有关键词的指数。单次最多 5 个一组请求，100 个约 1-2 分钟跑完。</div>
+            <h2><span class="icon">🔑</span> 管理关键词</h2>
+            <div class="help">每天凌晨 03:00 自动抓取列表里所有关键词的指数。单次最多 5 个一组，100 个约 1-2 分钟跑完。</div>
             <div id="keywordsList"><div class="empty">加载中...</div></div>
             <div class="form-row">
                 <input type="text" id="newKeyword" placeholder="输入关键词，多个用逗号分隔">
                 <button onclick="addKeywords()">+ 添加</button>
+            </div>
+        </div>
+
+        <div class="card grid-full">
+            <h2><span class="icon">🌐</span> 代理设置（可选）</h2>
+            <div class="help">设置后，定时抓取和实时抓取都会走这个代理；留空则用服务器本机 IP 直连。</div>
+            <div id="proxyStatus" style="margin-bottom: 10px; font-size: 13px;"></div>
+            <div class="form-row">
+                <input type="text" id="proxyInput" placeholder="http://user:pass@host:port 或 socks5://host:port，留空直连">
+                <button onclick="saveProxy()">保存代理</button>
+                <span id="proxySaveStatus" style="font-size: 13px; color: #666;"></span>
             </div>
         </div>
 
@@ -248,7 +272,7 @@ tbody tr:hover { background: #f8f9fa; }
 
         <div class="card grid-full">
             <h2><span class="icon">📜</span> 定时任务运行记录</h2>
-            <div class="help">每天凌晨 3 点自动跑一次。如果连续失败，多半是 Cookie 过期，重新更新一下 Cookie 即可。</div>
+            <div class="help">每天凌晨 3 点自动跑一次。如果连续失败，多半是 Cookie 或 Cipher-Text 过期，重新复制一次即可；失败原因见下表「错误信息」列。</div>
             <div id="runsList"><div class="empty">加载中...</div></div>
         </div>
     </div>
@@ -270,14 +294,13 @@ tbody tr:hover { background: #f8f9fa; }
     <div class="modal-content" style="max-width: 720px; max-height: 90vh; overflow-y: auto;">
         <h3>🔍 网络诊断面板</h3>
         <p style="margin-bottom: 16px; font-size: 13px; color: #666;">
-            用项目实际的爬虫核心（curl_cffi + Chrome TLS 指纹 + 完整浏览器请求头）
-            真实地往百度发一次请求，看到底哪一步卡住。
+            用爬虫核心实发一次请求，定位卡在哪一步。代理留空则用当前生效的代理。
         </p>
 
         <div style="margin-bottom: 16px;">
             <label style="display: block; font-weight: 500; margin-bottom: 6px;">代理 URL（可选）</label>
-            <input type="text" id="diagProxy" placeholder="留空 = 直连测试；http://user:pass@host:port 或 socks5://...">
-            <small style="color: #888; font-size: 12px;">填了就走代理，留空就用服务器自身 IP 直连</small>
+            <input type="text" id="diagProxy" placeholder="留空用当前生效代理；http://user:pass@host:port 或 socks5://...">
+            <small style="color: #888; font-size: 12px;">仅本次测试用，不影响已保存的代理设置</small>
         </div>
 
         <div style="margin-bottom: 16px;">
@@ -285,23 +308,23 @@ tbody tr:hover { background: #f8f9fa; }
                 Cookie（可选）
                 <button type="button" class="small" style="background:#6c757d;margin-left:8px;" onclick="$('diagCookie').value=''">清空</button>
             </label>
-            <textarea id="diagCookie" placeholder="完整 Baidu Cookie 字符串（一般 500-2000 字符）。留空 = 不带 Cookie 测试纯 IP" style="min-height: 100px;"></textarea>
-            <small style="color: #888; font-size: 12px;">从浏览器 F12 → Network → 请求头里复制 Cookie 整行</small>
+            <textarea id="diagCookie" placeholder="完整 Cookie 整行，留空则只测出口 IP" style="min-height: 100px;"></textarea>
+            <small style="color: #888; font-size: 12px;">从同一请求的 Request Headers 里复制 Cookie 整行</small>
         </div>
 
         <div style="margin-bottom: 16px;">
             <label style="display: block; font-weight: 500; margin-bottom: 6px;">
-                🔑 Cipher-Text（百度反爬必需！）
+                🔑 Cipher-Text（可选）
                 <button type="button" class="small" style="background:#6c757d;margin-left:8px;" onclick="$('diagCipher').value=''">清空</button>
             </label>
-            <textarea id="diagCipher" placeholder="从浏览器同一个请求里复制 Cipher-Text 头的值（格式：数字_数字_一长串编码）。这是百度风控的关键签名，没它就 10018！" style="min-height: 80px;"></textarea>
-            <small style="color: #c0392b; font-size: 12px;">⚠️ 这是绕过 10018 的关键！F12 → Network → 找请求 → Request Headers 里复制 Cipher-Text 整行</small>
+            <textarea id="diagCipher" placeholder="从同一请求复制 Cipher-Text 整行（格式：数字_数字_编码）" style="min-height: 80px;"></textarea>
+            <small style="color: #888; font-size: 12px;">和 Cookie 来自同一个请求的 Request Headers</small>
         </div>
 
         <div style="margin-bottom: 20px;">
             <label style="cursor: pointer;">
                 <input type="checkbox" id="diagWarmup" checked>
-                <span>先访问主页 warmup（模拟真实浏览器先打开页面再调 API，推荐开启）</span>
+                <span>先访问主页预热（推荐开启）</span>
             </label>
         </div>
 
@@ -481,20 +504,60 @@ async function loadCredStatus() {
             parts.push(`<span style="color:#dc3545;">● Cookie 未配置或无效</span>`);
         }
         if (r.cipher_text.configured) {
-            const v = r.cipher_text.validity;
-            if (v && v.valid) {
-                const remaining = v.remaining_human;
-                const color = v.remaining_seconds > 3600 ? '#28a745' : (v.remaining_seconds > 600 ? '#fd7e14' : '#dc3545');
-                parts.push(`<span style="color:${color};">● Cipher-Text 有效，剩余 ${remaining}</span>`);
+            const v = r.cipher_text.info;
+            if (v && v.format_ok) {
+                if (v.stale) {
+                    parts.push(`<span style="color:#fd7e14;">● Cipher-Text 已保存（生成于 ${v.generated_at_human}，已用 ${v.age_human}），建议重新复制一次</span>`);
+                } else {
+                    parts.push(`<span style="color:#28a745;">● Cipher-Text 已保存（生成于 ${v.generated_at_human}，已用 ${v.age_human}）</span>`);
+                }
             } else {
-                parts.push(`<span style="color:#dc3545;">● Cipher-Text 已过期，请重新获取并保存</span>`);
+                parts.push(`<span style="color:#dc3545;">● Cipher-Text 格式异常，请重新复制整行</span>`);
             }
         } else {
-            parts.push(`<span style="color:#dc3545;">● Cipher-Text 未配置（绕过反爬必需，强烈建议配置！）</span>`);
+            parts.push(`<span style="color:#dc3545;">● Cipher-Text 未配置，请粘贴后保存</span>`);
         }
         $('credStatus').innerHTML = parts.join('<br>');
     } catch (e) {
         $('credStatus').innerHTML = '';
+    }
+}
+
+async function loadProxy() {
+    if (!token) return;
+    try {
+        const r = await api('/api/proxy');
+        $('proxyInput').value = r.saved || '';
+        let msg;
+        if (r.effective) {
+            const via = r.source === 'env' ? '（来自环境变量）' : '';
+            msg = `<span style="color:#28a745;">● 当前生效代理：${escapeHtml(r.effective)} ${via}</span>`;
+        } else {
+            msg = `<span style="color:#888;">● 未设置代理，使用本机 IP 直连</span>`;
+        }
+        $('proxyStatus').innerHTML = msg;
+    } catch (e) {
+        $('proxyStatus').innerHTML = '';
+    }
+}
+
+async function saveProxy() {
+    const proxy = $('proxyInput').value.trim();
+    const btn = event.target;
+    btn.disabled = true;
+    const oldText = btn.textContent;
+    btn.textContent = '保存中...';
+    try {
+        await api('/api/proxy', { method: 'POST', body: JSON.stringify({proxy}) });
+        $('proxySaveStatus').innerHTML = '<span style="color:#28a745;">✓ 已保存</span>';
+        showToast(proxy ? '代理已保存' : '已清空代理，恢复直连', 'success');
+        loadProxy();
+    } catch (e) {
+        $('proxySaveStatus').innerHTML = `<span style="color:#dc3545;">✗ ${escapeHtml(e.message)}</span>`;
+        showToast('保存失败：' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = oldText;
     }
 }
 
@@ -571,7 +634,7 @@ function renderData(kw, data) {
 }
 
 function renderChart(rows, max) {
-    if (!rows.length || max === 0) return '<div class="empty">数据全为 0，可能此关键词搜索量过低未被百度收录</div>';
+    if (!rows.length || max === 0) return '<div class="empty">数据全为 0，可能此关键词搜索量过低未被收录</div>';
     const w = 900, h = 240, padL = 50, padR = 20, padT = 20, padB = 30;
     const n = rows.length;
     const innerW = w - padL - padR;
@@ -665,20 +728,20 @@ function renderDiagnoseResult(r) {
     row('代理', escapeHtml(r.proxy || '直连'));
     row('Warmup', r.warmup ? `是 (HTTP ${r.warmup_status || '?'})` + (r.warmup_error ? ` <span style="color:#dc3545;">${escapeHtml(r.warmup_error)}</span>` : '') : '否');
     row('带 Cookie', r.use_cookie ? `是 (${r.cookie_length} 字符)` : '否（仅测 IP）');
-    row('带 Cipher-Text', r.use_cipher_text ? `是 (${r.cipher_text_length} 字符) 🔑` : '<span style="color:#c0392b;">否（很可能因此 10018！）</span>');
+    row('带 Cipher-Text', r.use_cipher_text ? `是 (${r.cipher_text_length} 字符) 🔑` : '否');
     row('耗时', r.elapsed_seconds !== undefined ? r.elapsed_seconds + ' 秒' : undefined);
     row('HTTP 状态码', r.http_status);
 
-    if (r.baidu_status !== undefined && r.baidu_status !== null) {
+    if (r.api_status !== undefined && r.api_status !== null) {
         let color = '#888';
-        if (r.baidu_status === 0) color = '#28a745';
-        else if (r.baidu_status === 10018) color = '#dc3545';
-        else if (r.baidu_status === 10000) color = '#fd7e14';
-        row('百度状态码', `<b>${r.baidu_status}</b>`, color);
+        if (r.api_status === 0) color = '#28a745';
+        else if (r.api_status === 10018) color = '#dc3545';
+        else if (r.api_status === 10000) color = '#fd7e14';
+        row('接口状态码', `<b>${r.api_status}</b>`, color);
     }
 
-    if (r.baidu_message) {
-        items.push(`<div><b style="display:inline-block;min-width:120px;color:#555;">百度返回</b> <span style="color:#666;font-size:12px;">${escapeHtml(r.baidu_message.slice(0, 300))}</span></div>`);
+    if (r.api_message) {
+        items.push(`<div><b style="display:inline-block;min-width:120px;color:#555;">接口返回</b> <span style="color:#666;font-size:12px;">${escapeHtml(String(r.api_message).slice(0, 300))}</span></div>`);
     }
 
     if (r.data_preview) {
@@ -710,7 +773,7 @@ async function runDiagnoseTest() {
     btn.disabled = true;
     btn.textContent = '测试中（最多 90 秒）...';
     $('diagResultBox').style.display = 'block';
-    $('diagResult').innerHTML = '<div style="color:#666;">正在请求百度，请稍候...</div>';
+    $('diagResult').innerHTML = '<div style="color:#666;">正在发起请求，请稍候...</div>';
 
     try {
         const r = await api('/api/diagnose', {
@@ -737,6 +800,7 @@ async function loadAll() {
     loadKeywords();
     loadRuns();
     loadCredStatus();
+    loadProxy();
 }
 
 updateTokenStatus();
