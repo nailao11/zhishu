@@ -130,12 +130,16 @@ def _do_diagnose(
     timeout: int,
     cipher_text: Optional[str] = None,
 ) -> dict:
-    """实际执行诊断：用爬虫核心实发一次请求，定位卡在哪一步。"""
+    """实际执行诊断：用爬虫核心实发一次请求，定位卡在哪一步。
+
+    代理按字面处理：传了就用传的，留空就直连——诊断结果只取决于这个框里填了什么，
+    不会偷偷套用后台已保存的代理，方便对照测试。
+    """
     import time as _time
     from curl_cffi import requests as cffi_requests
     from .crawler import BAIDU_INDEX_URL, BAIDU_HOME_URL, DEFAULT_HEADERS, HOME_HEADERS
 
-    eff_proxy = (proxy or config.effective_proxy() or "").strip() or None
+    eff_proxy = (proxy or "").strip() or None
     cookie_str = (cookie or "").strip()
     use_cookie = bool(cookie_str)
     cipher_str = (cipher_text or "").strip()
@@ -244,14 +248,19 @@ def _do_diagnose(
 
 
 @app.post("/api/diagnose", dependencies=[Depends(verify_token)])
-async def diagnose(req: DiagnoseRequest):
-    """网络诊断：实发一次请求，定位卡在哪一步。"""
+def diagnose(req: DiagnoseRequest):
+    """网络诊断：实发一次请求，定位卡在哪一步。
+
+    同步 def：内部是阻塞网络请求，交给线程池跑，避免卡住事件循环。
+    """
     return _do_diagnose(req.proxy, req.cookie, req.warmup, req.timeout, req.cipher_text)
 
 
+# 注意：这个端点会发起阻塞式网络请求（curl_cffi），必须用同步 def，让
+# FastAPI 放到线程池执行，否则会卡死单线程事件循环、整个后台都打不开。
 @app.post("/api/query", dependencies=[Depends(verify_token)])
-async def query_keywords(req: QueryRequest, db: Database = Depends(get_db)):
-    """实时查询百度指数。会触发一次真实的爬取请求。"""
+def query_keywords(req: QueryRequest, db: Database = Depends(get_db)):
+    """实时查询指数。会触发一次真实的爬取请求。"""
     try:
         crawler = get_crawler()
     except FileNotFoundError as e:
@@ -262,7 +271,7 @@ async def query_keywords(req: QueryRequest, db: Database = Depends(get_db)):
     except CookieExpiredError as e:
         raise HTTPException(status_code=401, detail=f"Cookie 已失效: {e}")
     except RateLimitError as e:
-        raise HTTPException(status_code=429, detail=f"百度限流: {e}")
+        raise HTTPException(status_code=429, detail=f"请求过于频繁: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"查询失败: {e}")
 
@@ -325,8 +334,11 @@ async def delete_keyword(keyword: str, db: Database = Depends(get_db)):
 
 
 @app.post("/api/cookie", dependencies=[Depends(verify_token)])
-async def update_cookie(req: CookieRequest):
-    """更新凭证：Cookie + Cipher-Text。会用新凭证试调一次确认有效。"""
+def update_cookie(req: CookieRequest):
+    """更新凭证：Cookie + Cipher-Text。会用新凭证试调一次确认有效。
+
+    同步 def：验证时会发起阻塞网络请求，交给线程池跑，避免卡住事件循环。
+    """
     cookie = req.cookie.strip()
     cipher = (req.cipher_text or "").strip()
 
