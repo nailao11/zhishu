@@ -294,13 +294,16 @@ tbody tr:hover { background: #f8f9fa; }
     <div class="modal-content" style="max-width: 720px; max-height: 90vh; overflow-y: auto;">
         <h3>🔍 网络诊断面板</h3>
         <p style="margin-bottom: 16px; font-size: 13px; color: #666;">
-            用爬虫核心实发一次请求，定位卡在哪一步。代理留空则用当前生效的代理。
+            用爬虫核心实发一次请求，定位卡在哪一步。代理留空 = 直连测试。
         </p>
 
         <div style="margin-bottom: 16px;">
-            <label style="display: block; font-weight: 500; margin-bottom: 6px;">代理 URL（可选）</label>
-            <input type="text" id="diagProxy" placeholder="留空用当前生效代理；http://user:pass@host:port 或 socks5://...">
-            <small style="color: #888; font-size: 12px;">仅本次测试用，不影响已保存的代理设置</small>
+            <label style="display: block; font-weight: 500; margin-bottom: 6px;">
+                代理 URL（可选）
+                <button type="button" class="small" style="background:#6c757d;margin-left:8px;" onclick="$('diagProxy').value=$('proxyInput').value">填入已保存</button>
+            </label>
+            <input type="text" id="diagProxy" placeholder="留空 = 直连测试；http://user:pass@host:port 或 socks5://host:port">
+            <small style="color: #888; font-size: 12px;">留空就直连测试；要测代理就填进来。只影响本次测试，不改后台已保存的代理。</small>
         </div>
 
         <div style="margin-bottom: 16px;">
