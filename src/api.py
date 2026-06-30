@@ -83,7 +83,7 @@ class ProxyRequest(BaseModel):
 
 
 class DiagnoseRequest(BaseModel):
-    proxy: Optional[str] = Field(None, description="可选代理 URL；不传则用当前生效的代理")
+    proxy: Optional[str] = Field(None, description="可选代理 URL；留空 = 直连测试")
     cookie: Optional[str] = Field(None, description="可选 Cookie 字符串；不传则只测 IP")
     cipher_text: Optional[str] = Field(None, description="可选 Cipher-Text 头，从同一请求复制")
     warmup: bool = Field(True, description="是否先访问主页预热")
@@ -180,6 +180,22 @@ def _do_diagnose(
         if eff_proxy:
             session.proxies = {"http": eff_proxy, "https": eff_proxy}
             session.verify = False
+
+        # 探测实际出口 IP：这次请求到底从哪个 IP 出去——用代理就是代理的 IP，
+        # 没用代理就是服务器本机 IP，一眼就能判断走没走代理。
+        try:
+            ip_resp = session.get(
+                "http://ip-api.com/json/?fields=query,country,regionName,isp",
+                timeout=min(timeout, 12),
+            )
+            ipj = ip_resp.json()
+            result["egress_ip"] = ipj.get("query")
+            result["egress_geo"] = " ".join(
+                x for x in [ipj.get("country"), ipj.get("regionName")] if x
+            )
+            result["egress_isp"] = ipj.get("isp")
+        except Exception as e:
+            result["egress_error"] = str(e)[:150]
 
         if warmup:
             try:

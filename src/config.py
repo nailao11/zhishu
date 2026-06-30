@@ -20,11 +20,8 @@ LOG_DIR = Path(os.environ.get("ZHISHU_LOG_DIR", PROJECT_ROOT / "logs"))
 # API 访问 Token（防止公网被随便调用）
 API_TOKEN = os.environ.get("ZHISHU_API_TOKEN", "")
 
-# 监听地址和端口
 API_HOST = os.environ.get("ZHISHU_API_HOST", "0.0.0.0")
 API_PORT = int(os.environ.get("ZHISHU_API_PORT", "8000"))
-
-# 默认查询天数
 DEFAULT_DAYS = int(os.environ.get("ZHISHU_DEFAULT_DAYS", "30"))
 
 # 历史数据与日志的保留天数；超过的会在每日任务里滚动清理
