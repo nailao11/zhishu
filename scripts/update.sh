@@ -47,6 +47,15 @@ chmod 644 /etc/logrotate.d/zhishu
 # 清掉旧版按月命名的日志（现在统一写 daily.log）
 rm -f "$INSTALL_DIR"/logs/daily_*.log 2>/dev/null || true
 
+info "更新 cron 定时任务（每天 15:05 抓取）..."
+cat > /etc/cron.d/zhishu-daily <<EOF
+# 每天 15:05 抓取指数（百度指数一般在下午 14-16 点更新前一天的数据）
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+5 15 * * * $SERVICE_USER cd $INSTALL_DIR && $INSTALL_DIR/venv/bin/python scripts/run_daily.py >> $INSTALL_DIR/logs/cron.log 2>&1
+EOF
+chmod 644 /etc/cron.d/zhishu-daily
+
 info "重启服务..."
 systemctl restart zhishu-api.service
 

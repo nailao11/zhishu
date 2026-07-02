@@ -27,6 +27,9 @@ DEFAULT_DAYS = int(os.environ.get("ZHISHU_DEFAULT_DAYS", "30"))
 # 历史数据与日志的保留天数；超过的会在每日任务里滚动清理
 RETENTION_DAYS = int(os.environ.get("ZHISHU_RETENTION_DAYS", "45"))
 
+# 关键词自动删除天数：添加满 N 天后每日任务自动删除，0 表示不自动删
+KEYWORD_TTL_DAYS = int(os.environ.get("ZHISHU_KEYWORD_TTL_DAYS", "60"))
+
 # 可选的默认 HTTP/SOCKS5 代理（让抓取走代理出口）
 # 格式： http://user:pass@host:port  或  socks5://user:pass@host:port
 # 这是环境变量级别的默认值；后台保存的 proxy.txt 优先级更高。
