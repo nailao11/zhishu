@@ -88,13 +88,13 @@ systemctl daemon-reload
 systemctl enable zhishu-api.service
 systemctl restart zhishu-api.service
 
-info "Step 7/8: 安装 cron 定时任务（每天 03:00 抓取）"
+info "Step 7/8: 安装 cron 定时任务（每天 15:05 抓取）"
 CRON_FILE=/etc/cron.d/zhishu-daily
 cat > "$CRON_FILE" <<EOF
-# 每天凌晨 3 点抓取指数
+# 每天 15:05 抓取指数（百度指数一般在下午 14-16 点更新前一天的数据）
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-0 3 * * * $SERVICE_USER cd $INSTALL_DIR && $INSTALL_DIR/venv/bin/python scripts/run_daily.py >> $INSTALL_DIR/logs/cron.log 2>&1
+5 15 * * * $SERVICE_USER cd $INSTALL_DIR && $INSTALL_DIR/venv/bin/python scripts/run_daily.py >> $INSTALL_DIR/logs/cron.log 2>&1
 EOF
 chmod 644 "$CRON_FILE"
 
@@ -133,5 +133,5 @@ echo "  下一步必做（都在网页后台完成）："
 echo "    1. 浏览器打开 http://<服务器IP>:8000/admin ，输入上面的 Token"
 echo "    2. 在「凭证管理」粘贴 Cookie + Cipher-Text 保存"
 echo "    3. 在「管理关键词」添加要监控的关键词"
-echo "    4. 可点「实时抓取」立即验证，或等每天 03:00 自动运行"
+echo "    4. 可点「实时抓取」立即验证，或等每天 15:05 自动运行"
 echo ""

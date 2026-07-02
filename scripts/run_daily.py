@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """每日定时任务入口脚本
 
-读取数据库中已启用的关键词，逐批查询指数并保存，最后滚动清理过期数据。
-建议用 cron 每天凌晨 2-3 点执行（避开网站高峰）。
+先删除添加满 60 天的关键词，再逐批查询启用关键词的指数并保存，最后滚动清理过期数据。
+建议用 cron 每天下午 15:05 执行（百度指数一般在 14-16 点更新前一天的数据）。
 
 cron 示例：
-    0 3 * * * /opt/zhishu/venv/bin/python /opt/zhishu/scripts/run_daily.py
+    5 15 * * * /opt/zhishu/venv/bin/python /opt/zhishu/scripts/run_daily.py
 """
 from __future__ import annotations
 
@@ -66,6 +66,14 @@ def main() -> int:
     log.info("开始每日抓取任务，days=%d area=%d", args.days, args.area)
 
     db = Database(config.DB_PATH)
+
+    try:
+        expired = db.prune_expired_keywords(config.KEYWORD_TTL_DAYS)
+        if expired:
+            log.info("已删除 %d 个添加满 %d 天的关键词", expired, config.KEYWORD_TTL_DAYS)
+    except Exception as e:
+        log.warning("清理过期关键词失败（忽略）: %s", e)
+
     keywords = [k["keyword"] for k in db.list_keywords(enabled_only=True)]
 
     if not keywords:

@@ -249,3 +249,12 @@ class Database:
             c1 = conn.execute("DELETE FROM daily_index WHERE date < ?", (cutoff_date,))
             c2 = conn.execute("DELETE FROM run_log WHERE started_at < ?", (cutoff_ts,))
             return {"daily_index_deleted": c1.rowcount, "run_log_deleted": c2.rowcount}
+
+    def prune_expired_keywords(self, ttl_days: int) -> int:
+        """删除添加满 ttl_days 天的关键词。历史数据不动，仍按保留期单独清理。"""
+        if ttl_days <= 0:
+            return 0
+        cutoff = (datetime.now() - timedelta(days=ttl_days)).strftime("%Y-%m-%d %H:%M:%S")
+        with self._lock, self._conn() as conn:
+            cur = conn.execute("DELETE FROM keywords WHERE created_at < ?", (cutoff,))
+            return cur.rowcount
