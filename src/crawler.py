@@ -15,9 +15,9 @@ from curl_cffi import requests
 
 logger = logging.getLogger(__name__)
 
-BAIDU_INDEX_URL = "https://index.baidu.com/api/SearchApi/index"
+INDEX_API_URL = "https://index.baidu.com/api/SearchApi/index"
 PTBK_URL = "https://index.baidu.com/Interface/ptbk"
-BAIDU_HOME_URL = "https://index.baidu.com/v2/main/index.html"
+HOME_URL = "https://index.baidu.com/v2/main/index.html"
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -65,7 +65,7 @@ class RateLimitError(Exception):
     """请求过于频繁，被限流"""
 
 
-class BaiduIndexError(Exception):
+class IndexApiError(Exception):
     """接口通用错误"""
 
 
@@ -105,11 +105,7 @@ class KeywordResult:
 
 @dataclass
 class BatchOutcome:
-    """批量抓取的结果：成功的数据 + 失败的批次明细。
-
-    failures 里每一项是 ``{"keywords": [...], "error": "原因"}``，方便把
-    「哪些关键词、为什么失败」如实记录进运行日志，而不是默默吞掉。
-    """
+    """批量抓取结果。failures 每项为 ``{"keywords": [...], "error": "原因"}``。"""
     results: list[KeywordResult] = field(default_factory=list)
     failures: list[dict] = field(default_factory=list)
 
@@ -122,7 +118,7 @@ class BatchOutcome:
         return sum(len(f["keywords"]) for f in self.failures)
 
     def error_summary(self) -> str | None:
-        """把失败明细汇成一行，写进 run_log.error。全部成功时返回 None。"""
+        """失败明细汇成一行；全部成功时返回 None。"""
         if not self.failures:
             return None
         return "；".join(
@@ -130,11 +126,11 @@ class BatchOutcome:
         )
 
 
-class BaiduIndexCrawler:
+class IndexCrawler:
     """指数爬虫，单 Cookie 模式。
 
     使用方式：
-        crawler = BaiduIndexCrawler(cookie="your_cookie_string")
+        crawler = IndexCrawler(cookie="your_cookie_string")
         results = crawler.fetch_keywords(["python", "java"], days=30)
     """
 
@@ -154,24 +150,19 @@ class BaiduIndexCrawler:
         self.session = requests.Session(impersonate=impersonate)
         if self.proxy:
             self.session.proxies = {"http": self.proxy, "https": self.proxy}
-        # 部分代理会中间解密 HTTPS，证书校验需要关闭；未显式指定时：
-        # 走代理默认关闭校验，直连默认开启。
+        # 走代理默认关闭证书校验（代理常做中间解密），直连默认开启
         if verify_ssl is None:
             verify_ssl = self.proxy is None
         self.session.verify = verify_ssl
         self._warmed_up = False
 
     def _warmup(self) -> None:
-        """先 GET 一次主页，再调 API，模拟浏览器的正常访问顺序。
-
-        浏览器通常是先打开页面、再由 XHR 调接口；先访问主页也能让 session
-        收到主页下发的 cookies。
-        """
+        """先访问一次主页再调 API，模拟浏览器访问顺序。"""
         if self._warmed_up:
             return
         try:
             headers = {**HOME_HEADERS, "Cookie": self.cookie}
-            self.session.get(BAIDU_HOME_URL, headers=headers, timeout=30, allow_redirects=True)
+            self.session.get(HOME_URL, headers=headers, timeout=30, allow_redirects=True)
             self._warmed_up = True
         except Exception as e:
             logger.warning("warmup 失败，继续直接调 API: %s", e)
@@ -235,7 +226,7 @@ class BaiduIndexCrawler:
             "days": str(days),
         }
         resp = self.session.get(
-            BAIDU_INDEX_URL,
+            INDEX_API_URL,
             params=params,
             headers=self._headers(),
             timeout=30,
@@ -243,12 +234,12 @@ class BaiduIndexCrawler:
         if resp.status_code == 429:
             raise RateLimitError("请求过于频繁，被限流（HTTP 429）")
         if resp.status_code != 200:
-            raise BaiduIndexError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+            raise IndexApiError(f"HTTP {resp.status_code}: {resp.text[:200]}")
 
         try:
             data = resp.json()
         except Exception as e:
-            raise BaiduIndexError(f"响应不是合法 JSON: {e}; body={resp.text[:200]}")
+            raise IndexApiError(f"响应不是合法 JSON: {e}; body={resp.text[:200]}")
 
         status = data.get("status")
         # 接口有时返回 message=0 (int) 而不是字符串，统一转成字符串再判断
@@ -259,7 +250,7 @@ class BaiduIndexCrawler:
         if status == 10001:
             raise RateLimitError(f"请求过于频繁: {message}")
         if status != 0:
-            raise BaiduIndexError(f"接口返回错误 status={status}: {message}")
+            raise IndexApiError(f"接口返回错误 status={status}: {message}")
 
         return data
 
@@ -271,11 +262,11 @@ class BaiduIndexCrawler:
             timeout=30,
         )
         if resp.status_code != 200:
-            raise BaiduIndexError(f"获取ptbk失败 HTTP {resp.status_code}")
+            raise IndexApiError(f"获取ptbk失败 HTTP {resp.status_code}")
         data = resp.json()
         ptbk = data.get("data", "")
         if not ptbk:
-            raise BaiduIndexError("ptbk 为空，凭证可能已失效")
+            raise IndexApiError("ptbk 为空，凭证可能已失效")
         return ptbk
 
     def fetch_keywords(
@@ -345,13 +336,9 @@ class BaiduIndexCrawler:
         batch_size: int = 5,
         sleep_between_batch: tuple[float, float] = (2.0, 4.0),
     ) -> BatchOutcome:
-        """批量查询，自动按 batch_size 切分并加延迟。
+        """批量查询，按 batch_size 切分并加延迟。
 
-        适合定时任务一次跑几十上百个关键词。返回 :class:`BatchOutcome`，
-        其中既有成功的数据，也有每个失败批次的关键词和原因。
-
-        凭证整体失效（CookieExpiredError）属于致命错误，直接抛出由上层处理；
-        单个批次的其他异常只记进 failures，不影响其余批次。
+        CookieExpiredError 直接抛出；单个批次的其他异常记入 failures，不影响其余批次。
         """
         outcome = BatchOutcome()
         total_batches = (len(keywords) + batch_size - 1) // batch_size

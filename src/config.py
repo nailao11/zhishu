@@ -47,7 +47,7 @@ def load_cookie() -> str:
         raise FileNotFoundError(
             f"Cookie 文件不存在: {COOKIE_FILE}\n"
             "请按以下步骤创建：\n"
-            "  1. 浏览器登录 https://index.baidu.com\n"
+            "  1. 浏览器登录目标站点\n"
             "  2. F12 → Network → 刷新页面 → 任选一个请求 → 复制 Cookie 头\n"
             f"  3. echo '<cookie字符串>' > {COOKIE_FILE}"
         )
@@ -72,15 +72,14 @@ def load_cookie() -> str:
         # 否则取第一行作为完整 Cookie
         cookie = lines[0]
 
-    # 50 字符以下基本是 "test" / "BAIDUID=xxx" 这种占位符；
-    # 真实 Cookie 即使只剩必要字段一般也有几百字符。具体长度不强约束。
+    # 50 字符以下基本是占位符；真实 Cookie 一般有几百字符
     if len(cookie) < 50:
         raise ValueError(
             f"Cookie 长度仅 {len(cookie)} 字符，看起来是占位符或不完整。"
             f"请从浏览器 DevTools 复制完整的 Cookie 整行（包含 BDUSS 字段）写入 {COOKIE_FILE}"
         )
 
-    # HTTP Header 必须 ASCII；占位符里的中文括号会导致 UnicodeEncodeError
+    # HTTP Header 必须 ASCII
     try:
         cookie.encode("ascii")
     except UnicodeEncodeError:
@@ -89,8 +88,6 @@ def load_cookie() -> str:
             f"这通常是因为粘错了示例占位符。请重新从浏览器 DevTools 复制完整 Cookie。"
         )
 
-    # BDUSS / BDUSS_BFESS 是登录态字段，两者都没有说明复制 Cookie 时还没登录。
-    # 这里提前判定，给出更精确的提示。
     if "BDUSS=" not in cookie and "BDUSS_BFESS=" not in cookie:
         raise ValueError(
             "Cookie 里没有 BDUSS / BDUSS_BFESS 字段，说明复制 Cookie 时还没登录账号。"
@@ -151,18 +148,15 @@ def effective_proxy() -> str:
     return load_proxy() or HTTP_PROXY
 
 
-# Cipher-Text 视为「新鲜」的时长（小时）。它本身不含过期时间，实际有效性由
-# 服务端按约每天轮换判定；超过这个时长就提示重新复制一次。
+# Cipher-Text 视为新鲜的时长（小时），超过则提示重新复制
 CIPHER_FRESH_HOURS = int(os.environ.get("ZHISHU_CIPHER_FRESH_HOURS", "24"))
 
 
 def parse_cipher_text_info(cipher_text: str) -> dict:
     """解析 Cipher-Text 的生成时间。
 
-    格式为 ``<ms1>_<ms2>_<密文>``：两段数字都是生成时刻的时间戳（毫秒），
-    其中较大的一段是这条签名被生成/复制的时间。字符串里**没有过期时间**——
-    令牌的有效性由服务端判定、约每天轮换一次。所以这里只能给出「生成于何时、
-    已经用了多久」，据此提示是否该刷新，而不是伪造一个过期倒计时。
+    格式为 ``<ms1>_<ms2>_<密文>``，两段数字是生成时刻的毫秒时间戳。
+    字符串本身不含过期时间，有效性由服务端判定，这里只报告生成时间与已用时长。
     """
     import time as _time
 

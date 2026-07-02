@@ -238,7 +238,7 @@ tbody tr:hover { background: #f8f9fa; }
 
         <div class="card">
             <h2><span class="icon">🔑</span> 管理关键词</h2>
-            <div class="help">每天 15:05 自动抓取列表里所有关键词的指数；关键词添加满 60 天后自动删除，不用手动清（<code>.env</code> 里 <code>ZHISHU_KEYWORD_TTL_DAYS</code> 可调，0 表示不自动删）。单次最多 5 个一组，100 个约 1-2 分钟跑完。</div>
+            <div class="help">每天 15:05 自动抓取列表内所有关键词；关键词添加满 60 天自动删除。单次最多 5 个一组，100 个约 1-2 分钟跑完。</div>
             <div id="keywordsList"><div class="empty">加载中...</div></div>
             <div class="form-row">
                 <input type="text" id="newKeyword" placeholder="输入关键词，多个用逗号分隔">

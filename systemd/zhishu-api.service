@@ -1,5 +1,5 @@
 [Unit]
-Description=Zhishu Baidu Index API Service
+Description=Zhishu Index API Service
 After=network.target
 
 [Service]

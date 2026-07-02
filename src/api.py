@@ -15,7 +15,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from . import config
-from .crawler import BaiduIndexCrawler, CookieExpiredError, RateLimitError
+from .crawler import IndexCrawler, CookieExpiredError, RateLimitError
 from .db import Database
 
 logger = logging.getLogger(__name__)
@@ -35,10 +35,10 @@ def get_db() -> Database:
     return Database(config.DB_PATH)
 
 
-def get_crawler() -> BaiduIndexCrawler:
+def get_crawler() -> IndexCrawler:
     cookie = config.load_cookie()
     cipher = config.load_cipher_text()
-    return BaiduIndexCrawler(
+    return IndexCrawler(
         cookie=cookie,
         proxy=config.effective_proxy() or None,
         cipher_text=cipher or None,
@@ -48,10 +48,7 @@ def get_crawler() -> BaiduIndexCrawler:
 def verify_token(
     creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
 ) -> None:
-    """Bearer Token 鉴权。若 ZHISHU_API_TOKEN 未配置则跳过鉴权。
-
-    用 HTTPBearer 声明，让 Swagger UI 显示 Authorize 按钮。
-    """
+    """Bearer Token 鉴权；未配置 ZHISHU_API_TOKEN 时跳过。"""
     if not config.API_TOKEN:
         return
     if not creds or (creds.scheme or "").lower() != "bearer":
@@ -130,14 +127,10 @@ def _do_diagnose(
     timeout: int,
     cipher_text: Optional[str] = None,
 ) -> dict:
-    """实际执行诊断：用爬虫核心实发一次请求，定位卡在哪一步。
-
-    代理按字面处理：传了就用传的，留空就直连——诊断结果只取决于这个框里填了什么，
-    不会偷偷套用后台已保存的代理，方便对照测试。
-    """
+    """执行诊断：实发一次请求，定位卡在哪一步。代理按传入值处理，不套用已保存配置。"""
     import time as _time
     from curl_cffi import requests as cffi_requests
-    from .crawler import BAIDU_INDEX_URL, BAIDU_HOME_URL, DEFAULT_HEADERS, HOME_HEADERS
+    from .crawler import INDEX_API_URL, HOME_URL, DEFAULT_HEADERS, HOME_HEADERS
 
     eff_proxy = (proxy or "").strip() or None
     cookie_str = (cookie or "").strip()
@@ -181,8 +174,7 @@ def _do_diagnose(
             session.proxies = {"http": eff_proxy, "https": eff_proxy}
             session.verify = False
 
-        # 探测实际出口 IP：这次请求到底从哪个 IP 出去——用代理就是代理的 IP，
-        # 没用代理就是服务器本机 IP，一眼就能判断走没走代理。
+        # 探测实际出口 IP，用于判断是否走了代理
         try:
             ip_resp = session.get(
                 "http://ip-api.com/json/?fields=query,country,regionName,isp",
@@ -202,7 +194,7 @@ def _do_diagnose(
                 home_headers = {**HOME_HEADERS}
                 if cookie_str:
                     home_headers["Cookie"] = cookie_str
-                home_resp = session.get(BAIDU_HOME_URL, headers=home_headers, timeout=timeout)
+                home_resp = session.get(HOME_URL, headers=home_headers, timeout=timeout)
                 result["warmup_status"] = home_resp.status_code
             except Exception as e:
                 result["warmup_error"] = str(e)[:200]
@@ -218,7 +210,7 @@ def _do_diagnose(
         if cipher_str:
             req_headers["Cipher-Text"] = cipher_str
         resp = session.get(
-            BAIDU_INDEX_URL,
+            INDEX_API_URL,
             params=params,
             headers=req_headers,
             timeout=timeout,
@@ -265,15 +257,11 @@ def _do_diagnose(
 
 @app.post("/api/diagnose", dependencies=[Depends(verify_token)])
 def diagnose(req: DiagnoseRequest):
-    """网络诊断：实发一次请求，定位卡在哪一步。
-
-    同步 def：内部是阻塞网络请求，交给线程池跑，避免卡住事件循环。
-    """
+    """网络诊断。同步 def：阻塞请求交给线程池，避免卡住事件循环。"""
     return _do_diagnose(req.proxy, req.cookie, req.warmup, req.timeout, req.cipher_text)
 
 
-# 注意：这个端点会发起阻塞式网络请求（curl_cffi），必须用同步 def，让
-# FastAPI 放到线程池执行，否则会卡死单线程事件循环、整个后台都打不开。
+# 阻塞网络请求必须用同步 def，由 FastAPI 放进线程池，避免卡死事件循环
 @app.post("/api/query", dependencies=[Depends(verify_token)])
 def query_keywords(req: QueryRequest, db: Database = Depends(get_db)):
     """实时查询指数。会触发一次真实的爬取请求。"""
@@ -351,10 +339,7 @@ async def delete_keyword(keyword: str, db: Database = Depends(get_db)):
 
 @app.post("/api/cookie", dependencies=[Depends(verify_token)])
 def update_cookie(req: CookieRequest):
-    """更新凭证：Cookie + Cipher-Text。会用新凭证试调一次确认有效。
-
-    同步 def：验证时会发起阻塞网络请求，交给线程池跑，避免卡住事件循环。
-    """
+    """更新凭证：Cookie + Cipher-Text，保存前用新凭证试调一次确认有效。"""
     cookie = req.cookie.strip()
     cipher = (req.cipher_text or "").strip()
 
@@ -379,7 +364,7 @@ def update_cookie(req: CookieRequest):
         )
 
     try:
-        test = BaiduIndexCrawler(
+        test = IndexCrawler(
             cookie=cookie,
             proxy=config.effective_proxy() or None,
             cipher_text=cipher or None,
