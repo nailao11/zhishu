@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """每日定时任务入口脚本
 
-先删除添加满 60 天的关键词，再逐批查询启用关键词的指数并保存，最后滚动清理过期数据。
-建议用 cron 每天下午 15:05 执行（百度指数一般在 14-16 点更新前一天的数据）。
+删除到期关键词，逐批抓取启用关键词的指数并保存，最后滚动清理历史数据。
 
 cron 示例：
     5 15 * * * /opt/zhishu/venv/bin/python /opt/zhishu/scripts/run_daily.py
@@ -14,20 +13,19 @@ import logging
 import sys
 from pathlib import Path
 
-# 让脚本能直接运行（不依赖 PYTHONPATH 设置）
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src import config
-from src.crawler import BaiduIndexCrawler, CookieExpiredError
+from src.crawler import IndexCrawler, CookieExpiredError
 from src.db import Database
 
 
 def setup_logging(log_dir: Path) -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
-    # 固定文件名，交给系统 logrotate 按天滚动、保留 N 天（见 install.sh）。
+    # 固定文件名，由 logrotate 按天滚动
     log_file = log_dir / "daily.log"
     handlers: list[logging.Handler] = [logging.FileHandler(log_file, encoding="utf-8")]
-    # 仅在交互式终端追加控制台输出；cron 下不重复写到 cron.log。
+    # cron 下不输出控制台，避免重复写进 cron.log
     if sys.stdout.isatty():
         handlers.append(logging.StreamHandler(sys.stdout))
     logging.basicConfig(
@@ -91,11 +89,10 @@ def main() -> int:
         prune(db, log)
         return 2
 
-    # 关键：把 Cipher-Text 一起传给爬虫——定时任务缺了它会被接口直接拦截。
     cipher = config.load_cipher_text()
     if not cipher:
         log.warning("未配置 Cipher-Text，请求可能被接口拦截；建议在后台补上")
-    crawler = BaiduIndexCrawler(
+    crawler = IndexCrawler(
         cookie=cookie,
         proxy=config.effective_proxy() or None,
         cipher_text=cipher or None,

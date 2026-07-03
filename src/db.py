@@ -208,8 +208,7 @@ class Database:
         fail: int,
         error: str | None = None,
     ) -> None:
-        # 状态只看成败计数：全成功=success，部分成功=partial，颗粒无收=failed。
-        # error 字段无论成败都如实记录原因，方便排查（不再因为有 error 就判 failed）。
+        # 全成功=success，部分成功=partial，全失败=failed；error 无论成败都记录
         if fail <= 0:
             status = "success"
         elif success > 0:
@@ -236,11 +235,7 @@ class Database:
     # --------- 数据清理 ---------
 
     def prune_old(self, retention_days: int = 45) -> dict:
-        """滚动清理：删除早于保留期的历史指数和运行记录。
-
-        每次采集都会重新覆盖最近 N 天的数据，所以超出保留期的旧数据没有保留价值。
-        删掉的页面空间会被后续写入复用，文件体积自然趋于稳定，无需 VACUUM。
-        """
+        """删除早于保留期的历史指数和运行记录。"""
         if retention_days <= 0:
             return {"daily_index_deleted": 0, "run_log_deleted": 0}
         cutoff_date = (date.today() - timedelta(days=retention_days)).isoformat()
@@ -251,7 +246,7 @@ class Database:
             return {"daily_index_deleted": c1.rowcount, "run_log_deleted": c2.rowcount}
 
     def prune_expired_keywords(self, ttl_days: int) -> int:
-        """删除添加满 ttl_days 天的关键词。历史数据不动，仍按保留期单独清理。"""
+        """删除添加满 ttl_days 天的关键词；历史数据仍按保留期单独清理。"""
         if ttl_days <= 0:
             return 0
         cutoff = (datetime.now() - timedelta(days=ttl_days)).strftime("%Y-%m-%d %H:%M:%S")
