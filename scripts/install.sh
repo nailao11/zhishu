@@ -60,8 +60,7 @@ fi
 
 info "Step 5/8: 准备目录和配置"
 mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/logs" "$INSTALL_DIR/config"
-# 预创建日志文件：否则 api.log 会由 systemd 以 root 属主创建，
-# logrotate（su 为 zhishu）无法 copytruncate，导致它永不轮转
+# 预创建日志文件，否则 api.log 会以 root 属主创建、logrotate 无法轮转
 touch "$INSTALL_DIR/logs/api.log" "$INSTALL_DIR/logs/cron.log" "$INSTALL_DIR/logs/daily.log"
 
 if [ ! -f "$INSTALL_DIR/.env" ]; then

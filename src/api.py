@@ -33,7 +33,6 @@ app = FastAPI(
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-# 进程内共享一个实例：避免每个请求都重跑建表脚本，也让内部的写锁真正生效
 @lru_cache(maxsize=1)
 def get_db() -> Database:
     return Database(config.DB_PATH)
@@ -115,7 +114,7 @@ async def admin_page():
 
 @app.get("/api/health")
 async def health(db: Database = Depends(get_db)):
-    """存活探测。此接口无鉴权，因此只报 ok/error，不暴露配置细节。"""
+    """存活探测（无鉴权，不返回配置细节）。"""
     try:
         db.list_keywords()
         return {"status": "ok", "time": datetime.now().isoformat(timespec="seconds")}
@@ -271,7 +270,6 @@ def query_keywords(req: QueryRequest, db: Database = Depends(get_db)):
     try:
         crawler = get_crawler()
     except (FileNotFoundError, ValueError) as e:
-        # Cookie 文件缺失或还是占位符时给出可读的 400，而不是裸 500
         raise HTTPException(status_code=400, detail=str(e))
 
     try:

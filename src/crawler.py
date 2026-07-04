@@ -197,7 +197,7 @@ class IndexCrawler:
 
     @staticmethod
     def _item_keyword(item: dict) -> str:
-        """从返回项里取出它对应的关键词名；取不到返回空串。"""
+        """返回项自带的词名，取不到返回空串。"""
         words = item.get("word") or []
         if isinstance(words, list) and words:
             first = words[0] or {}
@@ -295,8 +295,7 @@ class IndexCrawler:
         user_indexes = raw["data"]["userIndexes"]
         results: list[KeywordResult] = []
 
-        # 优先按返回项自带的词名对齐；接口漏掉中间某个词时，纯按位置对齐会把
-        # 后面的数据整体错位安到前面的词上。词名缺失时才退回按位置对齐。
+        # 按返回项自带的词名对齐，防止接口漏词时数据错位；无词名时按位置兜底
         by_name: dict[str, dict] = {}
         for item in user_indexes:
             name = self._item_keyword(item)
@@ -309,7 +308,6 @@ class IndexCrawler:
             if item is None and i < len(user_indexes):
                 candidate = user_indexes[i]
                 cand_name = self._item_keyword(candidate)
-                # 位置兜底仅在该项没标词名、或词名不属于本次请求的其他词时使用
                 if not cand_name or cand_name not in requested:
                     item = candidate
             if item is None:

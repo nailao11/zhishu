@@ -356,7 +356,7 @@ function $(id) { return document.getElementById(id); }
 function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
-// 按浏览器本地时区取日期；toISOString 是 UTC，东八区凌晨会差一天
+// 本地时区取日期（toISOString 是 UTC，凌晨会差一天）
 function fmtDate(d) {
     const p = n => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
@@ -379,7 +379,6 @@ async function api(path, options = {}) {
     let data = {};
     try { data = await resp.json(); } catch (e) {}
     if (!resp.ok) {
-        // 422 参数校验失败时 detail 是对象数组，拼成可读文本
         let msg = data.detail;
         if (Array.isArray(msg)) msg = msg.map(x => x.msg || JSON.stringify(x)).join('；');
         else if (msg && typeof msg === 'object') msg = JSON.stringify(msg);
@@ -426,7 +425,7 @@ async function loadKeywords() {
         const data = await api('/api/keywords');
         const list = data.keywords || [];
         keywordCache = list;
-        // 行内事件只传下标、从缓存取词，避免关键词里的引号拼进 onclick 造成注入
+        // onclick 只传下标，关键词字符串不进 HTML 拼接
         const html = list.length ? `
             <table>
                 <thead><tr><th>关键词</th><th>状态</th><th>添加时间</th><th width="110">操作</th></tr></thead>
