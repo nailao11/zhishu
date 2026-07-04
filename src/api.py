@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -31,6 +33,7 @@ app = FastAPI(
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+@lru_cache(maxsize=1)
 def get_db() -> Database:
     return Database(config.DB_PATH)
 
@@ -53,7 +56,7 @@ def verify_token(
         return
     if not creds or (creds.scheme or "").lower() != "bearer":
         raise HTTPException(status_code=401, detail="缺少 Authorization Bearer Token")
-    if creds.credentials != config.API_TOKEN:
+    if not secrets.compare_digest(creds.credentials.encode(), config.API_TOKEN.encode()):
         raise HTTPException(status_code=401, detail="Token 错误")
 
 
@@ -68,6 +71,10 @@ class QueryRequest(BaseModel):
 
 class KeywordsRequest(BaseModel):
     keywords: list[str] = Field(..., description="一个或多个关键词")
+
+
+class KeywordUpdateRequest(BaseModel):
+    enabled: bool = Field(..., description="是否参与每日定时抓取")
 
 
 class CookieRequest(BaseModel):
@@ -107,15 +114,10 @@ async def admin_page():
 
 @app.get("/api/health")
 async def health(db: Database = Depends(get_db)):
+    """存活探测（无鉴权，不返回配置细节）。"""
     try:
-        kw_count = len(db.list_keywords())
-        cookie_exists = config.COOKIE_FILE.exists()
-        return {
-            "status": "ok",
-            "time": datetime.now().isoformat(timespec="seconds"),
-            "keyword_count": kw_count,
-            "cookie_configured": cookie_exists,
-        }
+        db.list_keywords()
+        return {"status": "ok", "time": datetime.now().isoformat(timespec="seconds")}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "detail": str(e)})
 
@@ -267,7 +269,7 @@ def query_keywords(req: QueryRequest, db: Database = Depends(get_db)):
     """实时查询指数。会触发一次真实的爬取请求。"""
     try:
         crawler = get_crawler()
-    except FileNotFoundError as e:
+    except (FileNotFoundError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     try:
@@ -327,6 +329,15 @@ async def list_keywords(enabled_only: bool = False, db: Database = Depends(get_d
 async def add_keywords(req: KeywordsRequest, db: Database = Depends(get_db)):
     added = db.add_keywords(req.keywords)
     return {"added": added, "skipped": len(req.keywords) - added}
+
+
+@app.patch("/api/keywords/{keyword}", dependencies=[Depends(verify_token)])
+async def update_keyword(keyword: str, req: KeywordUpdateRequest, db: Database = Depends(get_db)):
+    """启用/禁用关键词。禁用后不再参与定时抓取，历史数据保留。"""
+    ok = db.set_keyword_enabled(keyword, req.enabled)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"关键词不存在: {keyword}")
+    return {"keyword": keyword, "enabled": req.enabled}
 
 
 @app.delete("/api/keywords/{keyword}", dependencies=[Depends(verify_token)])
@@ -459,6 +470,8 @@ def main():
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+    if not config.API_TOKEN:
+        logger.warning("未设置 ZHISHU_API_TOKEN，所有接口无需鉴权即可访问！请在 .env 里配置")
     uvicorn.run(
         "src.api:app",
         host=config.API_HOST,

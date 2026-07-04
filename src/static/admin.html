@@ -238,7 +238,7 @@ tbody tr:hover { background: #f8f9fa; }
 
         <div class="card">
             <h2><span class="icon">🔑</span> 管理关键词</h2>
-            <div class="help">每天 15:05 自动抓取列表内所有关键词；关键词添加满 60 天自动删除。单次最多 5 个一组，100 个约 1-2 分钟跑完。</div>
+            <div class="help">每天 15:05 自动抓取所有「启用」的关键词，禁用即暂停抓取（历史保留）；关键词添加满 60 天自动删除。单次最多 5 个一组，100 个约 1-2 分钟跑完。</div>
             <div id="keywordsList"><div class="empty">加载中...</div></div>
             <div class="form-row">
                 <input type="text" id="newKeyword" placeholder="输入关键词，多个用逗号分隔">
@@ -356,7 +356,11 @@ function $(id) { return document.getElementById(id); }
 function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
-function fmtDate(d) { return d.toISOString().slice(0, 10); }
+// 本地时区取日期（toISOString 是 UTC，凌晨会差一天）
+function fmtDate(d) {
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
 
 function showToast(msg, type='') {
     const t = $('toast');
@@ -375,7 +379,10 @@ async function api(path, options = {}) {
     let data = {};
     try { data = await resp.json(); } catch (e) {}
     if (!resp.ok) {
-        const err = new Error(data.detail || (resp.status + ' ' + resp.statusText));
+        let msg = data.detail;
+        if (Array.isArray(msg)) msg = msg.map(x => x.msg || JSON.stringify(x)).join('；');
+        else if (msg && typeof msg === 'object') msg = JSON.stringify(msg);
+        const err = new Error(msg || (resp.status + ' ' + resp.statusText));
         err.status = resp.status;
         throw err;
     }
@@ -410,21 +417,28 @@ function saveToken() {
     loadAll();
 }
 
+let keywordCache = [];
+
 async function loadKeywords() {
     if (!token) { $('keywordsList').innerHTML = '<div class="empty">请先在右上角输入 Token</div>'; return; }
     try {
         const data = await api('/api/keywords');
         const list = data.keywords || [];
+        keywordCache = list;
+        // onclick 只传下标，关键词字符串不进 HTML 拼接
         const html = list.length ? `
             <table>
-                <thead><tr><th>关键词</th><th>状态</th><th>添加时间</th><th width="60">操作</th></tr></thead>
+                <thead><tr><th>关键词</th><th>状态</th><th>添加时间</th><th width="110">操作</th></tr></thead>
                 <tbody>
-                    ${list.map(k => `
+                    ${list.map((k, i) => `
                         <tr>
                             <td><b>${escapeHtml(k.keyword)}</b></td>
                             <td>${k.enabled ? '<span class="status success">启用</span>' : '<span class="status failed">禁用</span>'}</td>
                             <td style="color:#999;font-size:12px;">${k.created_at || ''}</td>
-                            <td><button class="small danger" onclick="deleteKeyword('${encodeURIComponent(k.keyword)}','${escapeHtml(k.keyword)}')">删除</button></td>
+                            <td>
+                                <button class="small gray" onclick="toggleKeyword(${i})">${k.enabled ? '禁用' : '启用'}</button>
+                                <button class="small danger" onclick="deleteKeyword(${i})">删除</button>
+                            </td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -459,14 +473,31 @@ async function addKeywords() {
     }
 }
 
-async function deleteKeyword(encoded, display) {
-    if (!confirm(`确定删除关键词「${display}」？（历史数据不会被删除，只是不再定时抓取）`)) return;
+async function deleteKeyword(i) {
+    const k = keywordCache[i];
+    if (!k) return;
+    if (!confirm(`确定删除关键词「${k.keyword}」？（历史数据不会被删除，只是不再定时抓取）`)) return;
     try {
-        await api('/api/keywords/' + encoded, { method: 'DELETE' });
+        await api('/api/keywords/' + encodeURIComponent(k.keyword), { method: 'DELETE' });
         showToast('已删除', 'success');
         loadKeywords();
     } catch (e) {
         showToast('删除失败：' + e.message, 'error');
+    }
+}
+
+async function toggleKeyword(i) {
+    const k = keywordCache[i];
+    if (!k) return;
+    try {
+        await api('/api/keywords/' + encodeURIComponent(k.keyword), {
+            method: 'PATCH',
+            body: JSON.stringify({ enabled: !k.enabled }),
+        });
+        showToast(k.enabled ? `已禁用「${k.keyword}」，不再定时抓取` : `已启用「${k.keyword}」`, 'success');
+        loadKeywords();
+    } catch (e) {
+        showToast('操作失败：' + e.message, 'error');
     }
 }
 
