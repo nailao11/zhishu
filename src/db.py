@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS daily_index (
     PRIMARY KEY (keyword, date, area)
 );
 
-CREATE INDEX IF NOT EXISTS idx_daily_index_keyword ON daily_index(keyword);
+-- 按 keyword 查询走主键 (keyword, date, area) 的最左前缀即可，单独的 keyword 索引是冗余的
+DROP INDEX IF EXISTS idx_daily_index_keyword;
 CREATE INDEX IF NOT EXISTS idx_daily_index_date ON daily_index(date);
 
 CREATE TABLE IF NOT EXISTS run_log (
