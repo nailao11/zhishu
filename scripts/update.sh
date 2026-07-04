@@ -19,7 +19,9 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 info "拉取最新代码..."
-git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
+# --add 会重复追加，先查再加，避免 gitconfig 越积越多
+git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$INSTALL_DIR" \
+    || git config --global --add safe.directory "$INSTALL_DIR"
 git -C "$INSTALL_DIR" fetch origin "$REPO_BRANCH"
 git -C "$INSTALL_DIR" reset --hard "origin/$REPO_BRANCH"
 
@@ -27,7 +29,13 @@ info "更新 Python 依赖..."
 "$INSTALL_DIR/venv/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
 
 info "修正文件所有权..."
+# 预创建日志文件，保证属主是运行用户（logrotate copytruncate 需要写权限）
+touch "$INSTALL_DIR/logs/api.log" "$INSTALL_DIR/logs/cron.log" "$INSTALL_DIR/logs/daily.log"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
+
+info "同步 systemd 服务配置..."
+cp "$INSTALL_DIR/systemd/zhishu-api.service" /etc/systemd/system/zhishu-api.service
+systemctl daemon-reload
 
 info "配置日志滚动（logrotate，保留 45 天）..."
 cat > /etc/logrotate.d/zhishu <<EOF
