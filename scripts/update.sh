@@ -30,6 +30,7 @@ info "更新 Python 依赖..."
 
 info "修正文件所有权..."
 # 预创建日志文件，保证属主是运行用户（logrotate copytruncate 需要写权限）
+mkdir -p "$INSTALL_DIR/logs"
 touch "$INSTALL_DIR/logs/api.log" "$INSTALL_DIR/logs/cron.log" "$INSTALL_DIR/logs/daily.log"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 
