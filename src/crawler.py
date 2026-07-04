@@ -180,31 +180,30 @@ class IndexCrawler:
 
         ptbk 长度为偶数，前一半是密文字符表，后一半是对应的明文字符。
         """
+        if len(key) % 2 != 0:
+            raise IndexApiError(f"ptbk 长度异常（{len(key)}），无法解密")
         n = len(key) // 2
-        cipher_chars = key[:n]
-        plain_chars = key[n:]
-        out = []
-        for ch in data:
-            idx = cipher_chars.find(ch)
-            if idx >= 0:
-                out.append(plain_chars[idx])
-            else:
-                out.append(ch)
-        return "".join(out)
+        return data.translate(str.maketrans(key[:n], key[n:]))
 
     @staticmethod
     def _parse_int_list(s: str) -> list[int]:
         result = []
         for v in s.split(","):
-            v = v.strip()
-            if not v or v == "":
-                result.append(0)
-                continue
             try:
-                result.append(int(v))
+                result.append(int(v.strip()))
             except ValueError:
                 result.append(0)
         return result
+
+    @staticmethod
+    def _item_keyword(item: dict) -> str:
+        """从返回项里取出它对应的关键词名；取不到返回空串。"""
+        words = item.get("word") or []
+        if isinstance(words, list) and words:
+            first = words[0] or {}
+            if isinstance(first, dict):
+                return str(first.get("name") or "")
+        return ""
 
     @staticmethod
     def _date_range(start: str, end: str) -> list[str]:
@@ -296,11 +295,26 @@ class IndexCrawler:
         user_indexes = raw["data"]["userIndexes"]
         results: list[KeywordResult] = []
 
+        # 优先按返回项自带的词名对齐；接口漏掉中间某个词时，纯按位置对齐会把
+        # 后面的数据整体错位安到前面的词上。词名缺失时才退回按位置对齐。
+        by_name: dict[str, dict] = {}
+        for item in user_indexes:
+            name = self._item_keyword(item)
+            if name:
+                by_name.setdefault(name, item)
+        requested = set(keywords)
+
         for i, kw in enumerate(keywords):
-            if i >= len(user_indexes):
+            item = by_name.get(kw)
+            if item is None and i < len(user_indexes):
+                candidate = user_indexes[i]
+                cand_name = self._item_keyword(candidate)
+                # 位置兜底仅在该项没标词名、或词名不属于本次请求的其他词时使用
+                if not cand_name or cand_name not in requested:
+                    item = candidate
+            if item is None:
                 logger.warning("关键词 %s 未返回数据", kw)
                 continue
-            item = user_indexes[i]
             all_blob = item.get("all", {})
             pc_blob = item.get("pc", {})
             wise_blob = item.get("wise", {})
