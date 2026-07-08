@@ -346,9 +346,9 @@ class IndexCrawler:
         area: int = 0,
         days: int = 30,
         batch_size: int = 5,
-        sleep_between_batch: tuple[float, float] = (2.0, 4.0),
+        sleep_between_batch: tuple[float, float] = (20.0, 50.0),
     ) -> BatchOutcome:
-        """批量查询，按 batch_size 切分并加延迟。
+        """批量查询，按 batch_size 切分，批间随机停顿模拟人工查询节奏。
 
         CookieExpiredError 直接抛出；单个批次的其他异常记入 failures，不影响其余批次。
         """
