@@ -4,13 +4,15 @@
 删除到期关键词，逐批抓取启用关键词的指数并保存，最后滚动清理历史数据。
 
 cron 示例：
-    5 15 * * * /opt/zhishu/venv/bin/python /opt/zhishu/scripts/run_daily.py
+    5 15 * * * /opt/zhishu/venv/bin/python /opt/zhishu/scripts/run_daily.py --start-jitter 1200
 """
 from __future__ import annotations
 
 import argparse
 import logging
+import random
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -54,6 +56,8 @@ def main() -> int:
                         help="抓取最近 N 天的数据 (默认 30)")
     parser.add_argument("--area", type=int, default=0, help="地区代码 (默认 0=全国)")
     parser.add_argument("--batch-size", type=int, default=5, help="单次请求关键词数")
+    parser.add_argument("--start-jitter", type=int, default=0,
+                        help="开始前随机延迟 0~N 秒，避免每天固定时刻抓取 (默认 0)")
     args = parser.parse_args()
 
     config.ensure_dirs()
@@ -62,6 +66,11 @@ def main() -> int:
 
     log.info("=" * 60)
     log.info("开始每日抓取任务，days=%d area=%d", args.days, args.area)
+
+    if args.start_jitter > 0:
+        delay = random.uniform(0, args.start_jitter)
+        log.info("随机延迟 %.0f 秒后开始抓取", delay)
+        time.sleep(delay)
 
     db = Database(config.DB_PATH)
 

@@ -238,7 +238,7 @@ tbody tr:hover { background: #f8f9fa; }
 
         <div class="card">
             <h2><span class="icon">🔑</span> 管理关键词</h2>
-            <div class="help">每天 15:05 自动抓取所有「启用」的关键词，禁用即暂停抓取（历史保留）；关键词添加满 60 天自动删除。单次最多 5 个一组，100 个约 1-2 分钟跑完。</div>
+            <div class="help">每天 15:05 起随机延迟自动抓取所有「启用」的关键词，禁用即暂停抓取（历史保留）；关键词添加满 60 天自动删除。抓取 5 个一组、组间随机停顿模拟人工，80 个词约 10 分钟跑完。</div>
             <div id="keywordsList"><div class="empty">加载中...</div></div>
             <div class="form-row">
                 <input type="text" id="newKeyword" placeholder="输入关键词，多个用逗号分隔">
@@ -275,7 +275,7 @@ tbody tr:hover { background: #f8f9fa; }
 
         <div class="card grid-full">
             <h2><span class="icon">📜</span> 定时任务运行记录</h2>
-            <div class="help">每天 15:05 自动跑一次。如果连续失败，多半是 Cookie 或 Cipher-Text 过期，重新复制一次即可；失败原因见下表「错误信息」列。</div>
+            <div class="help">每天 15:05 起随机延迟自动跑一次。如果连续失败，多半是 Cookie 或 Cipher-Text 过期，重新复制一次即可；失败原因见下表「错误信息」列。</div>
             <div id="runsList"><div class="empty">加载中...</div></div>
         </div>
     </div>
@@ -734,7 +734,7 @@ async function loadRuns() {
                     `).join('')}
                 </tbody>
             </table>
-        ` : '<div class="empty">还没有运行记录。等每天 15:05 自动跑一次，或者在服务器上手动跑：<br><code style="font-size:12px;">sudo -u zhishu /opt/zhishu/venv/bin/python /opt/zhishu/scripts/run_daily.py</code></div>';
+        ` : '<div class="empty">还没有运行记录。等每天 15:05 后自动跑一次，或者在服务器上手动跑：<br><code style="font-size:12px;">sudo -u zhishu /opt/zhishu/venv/bin/python /opt/zhishu/scripts/run_daily.py</code></div>';
         $('runsList').innerHTML = html;
     } catch (e) {
         $('runsList').innerHTML = `<div class="empty">加载失败：${escapeHtml(e.message)}</div>`;
